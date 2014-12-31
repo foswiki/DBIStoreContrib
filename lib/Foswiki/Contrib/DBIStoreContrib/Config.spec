@@ -121,4 +121,4 @@ $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema} = {
         type => { type => 'VARCHAR(32)' },
     }
 };
-
+1;
