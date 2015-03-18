@@ -376,8 +376,8 @@ sub insert {
        #                     . " WHERE tid='$tid' AND name='$attachment'" );
         }
     }
-    elsif ( defined $mo->topic() ) {
-
+    elsif ( $mo->topic() ) {
+        #todo: concurrency? what if two topics are inserted at the same time?
         my $tid = $dbh->selectrow_array('SELECT MAX(tid) FROM topic')
           || 0;
         $tid++;
@@ -525,48 +525,79 @@ sub remove {
     my ( $mo, $attachment ) = @_;
 
     _connect();
-    my $sql = "SELECT tid FROM topic WHERE topic.web='" . $mo->web() . "'";
-    $sql .= " AND topic.name='" . $mo->topic() . "'" if defined $mo->topic();
-    my $tids = $dbh->selectcol_arrayref($sql);
-    return unless scalar(@$tids);
+    
+    my $webName = _convertToUTF8($mo->web());
+    
+    if ($mo->topic()) {
+        my $topicName = _convertToUTF8($mo->topic());
+        
+        my $sql = "SELECT tid FROM topic WHERE topic.web='" . $webName . "'";
+        $sql .= " AND topic.name='" . $topicName . "'";
+        my $tids = $dbh->selectcol_arrayref($sql);
+        return unless scalar(@$tids);
 
-    if ( defined $attachment ) {
+        if ( defined $attachment ) {
 
-        ASSERT( scalar(@$tids) == 1 ) if DEBUG;
+            ASSERT( scalar(@$tids) == 1 ) if DEBUG;
 
-        # Note that we DO NOT explicitly remove the META:FILEATTACHMENT
-        # entry table here.
-        # That is done at a much higher level in Foswiki::Meta when the
-        # referring topic has it's meta-data rewritten.
-        # Here we simply clear down the raw data stored for the attachment.
-        if ( $personality->column_exists( 'FILEATTACHMENT', 'serialised' ) ) {
-            my $tid =
-              $dbh->selectrow_array( 'SELECT tid FROM topic '
-                  . "WHERE web='"
-                  . $mo->web
-                  . "' AND name='"
-                  . $mo->topic
-                  . "'" );
-            ASSERT($tid) if DEBUG;
+            # Note that we DO NOT explicitly remove the META:FILEATTACHMENT
+            # entry table here.
+            # That is done at a much higher level in Foswiki::Meta when the
+            # referring topic has it's meta-data rewritten.
+            # Here we simply clear down the raw data stored for the attachment.
+            if ( $personality->column_exists( 'FILEATTACHMENT', 'serialised' ) ) {
+                my $tid =
+                  $dbh->selectrow_array( 'SELECT tid FROM topic '
+                      . "WHERE web='"
+                      . $webName
+                      . "' AND name='"
+                      . $topicName
+                      . "'" );
+                ASSERT($tid) if DEBUG;
 
-      # TODO:
-      #            $dbh->do( 'UPDATE ' . $personality->safe_id('FILEATTACHMENT')
-      #                      . " SET serialised=''"
-      #                      . " WHERE tid='$tid' AND name='$attachment'" );
+          # TODO:
+          #            $dbh->do( 'UPDATE ' . $personality->safe_id('FILEATTACHMENT')
+          #                      . " SET serialised=''"
+          #                      . " WHERE tid='$tid' AND name='$attachment'" );
+            }
         }
-    }
-    else {
+        else {
 
-        foreach my $tid (@$tids) {
-            _say "\tRemove $tid" if MONITOR;
-            my $tables = $dbh->selectcol_arrayref('SELECT name FROM metatypes');
-            foreach my $table ( 'topic', @$tables ) {
-                if ( $personality->table_exists($table) ) {
-                    my $tn = $personality->safe_id($table);
-                    $dbh->do("DELETE FROM $tn WHERE tid='$tid'");
+            foreach my $tid (@$tids) {
+                _say "\tRemove $tid" if MONITOR;
+                my $tables = $dbh->selectcol_arrayref('SELECT name FROM metatypes');
+                foreach my $table ( 'topic', @$tables ) {
+                    if ( $personality->table_exists($table) ) {
+                        my $tn = $personality->safe_id($table);
+                        $dbh->do("DELETE FROM $tn WHERE tid='$tid'");
+                    }
                 }
             }
         }
+    }
+}
+
+=begin TML
+
+---++ StaticMethod rename($metaOld, $metaNew)
+
+Renames a FW object in the database.
+
+May throw an execption if SQL failed.
+
+=cut
+
+sub rename {
+    my ( $mo, $mn ) = @_;
+
+    _connect();
+    
+    if ($mo->web() && !$mo->topic()) {
+        my $oldWebName = _convertToUTF8($mo->web());
+        my $newWebName = _convertToUTF8($mn->web());
+        
+        _say "\tRename web from $oldWebName to $newWebName" if MONITOR;
+        $dbh->do( "UPDATE topic SET web = '$newWebName' WHERE web = '$oldWebName'" );
     }
 }
 

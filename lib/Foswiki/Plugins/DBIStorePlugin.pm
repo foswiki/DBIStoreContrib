@@ -106,13 +106,22 @@ sub afterRenameHandler {
           . ( $newTopic || '' ) . ':'
           . ( $newa || '' ) )
       if TRACE;
-    my $oldo =
-      new Foswiki::Meta( $Foswiki::Plugins::SESSION, $oldWeb, $oldTopic );
+
+    my $oldo = 
+        new Foswiki::Meta( $Foswiki::Plugins::SESSION, $oldWeb, $oldTopic );
     my $newo =
-      new Foswiki::Meta( $Foswiki::Plugins::SESSION, $newWeb, $newTopic );
+        new Foswiki::Meta( $Foswiki::Plugins::SESSION, $newWeb, $newTopic );
+        
     Foswiki::Contrib::DBIStoreContrib::start();
-    Foswiki::Contrib::DBIStoreContrib::remove($oldo);    #, $olda );
-    Foswiki::Contrib::DBIStoreContrib::insert($newo);    #, $newa );
+    
+    if ($oldTopic) {
+        Foswiki::Contrib::DBIStoreContrib::remove($oldo);    #, $olda );
+        Foswiki::Contrib::DBIStoreContrib::insert($newo);    #, $newa );
+    } else {
+        #rename web
+        Foswiki::Contrib::DBIStoreContrib::rename($oldo, $newo);
+    }
+    
     Foswiki::Contrib::DBIStoreContrib::commit();
 }
 
