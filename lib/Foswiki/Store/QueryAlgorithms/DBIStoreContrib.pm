@@ -15,22 +15,19 @@ use warnings;
 our @ISA;
 
 use Assert;
-use Foswiki::Search::Node             ();
-use Foswiki::Meta                     ();
-use Foswiki::Search::InfoCache        ();
-use Foswiki::Search::ResultSet        ();
-use Foswiki::MetaCache                ();
-use Foswiki::Query::Node              ();
-use Foswiki::Contrib::DBIStoreContrib ();
-use Foswiki::Func                     ();
-
-# Debug prints
-use constant MONITOR => Foswiki::Contrib::DBIStoreContrib::MONITOR;
+use Foswiki::Search::Node      ();
+use Foswiki::Meta              ();
+use Foswiki::Search::InfoCache ();
+use Foswiki::Search::ResultSet ();
+use Foswiki::MetaCache         ();
+use Foswiki::Query::Node       ();
+use Foswiki::Func              ();
+use Foswiki::Contrib::DBIStoreContrib qw(%OPTS trace);
 
 BEGIN {
     eval 'require Foswiki::Store::Interfaces::QueryAlgorithm';
     if ($@) {
-        Foswiki::Func::writeDebug("Compatibility mode") if MONITOR;
+        trace("Compatibility mode") if $OPTS{trace}{search};
         undef $@;
 
         # Foswiki 1.1 or earlier
@@ -117,14 +114,14 @@ sub query {
         ( $query, $topics, $session, $options ) = @_;
     }
 
-    Foswiki::Func::writeDebug( "Initial query: " . $query->stringify() )
-      if MONITOR;
+    trace( "Initial query: " . $query->stringify() )
+      if $OPTS{trace}{search};
 
     # Fold constants
     my $context = Foswiki::Meta->new( $session, $session->{webName} );
 
-#    $query->simplify( tom => $context, data => $context );
-#    Foswiki::Func::writeDebug( "Simplified to: " . $query->stringify() ) if MONITOR;
+  #    $query->simplify( tom => $context, data => $context );
+  #    trace( "Simplified to: " . $query->stringify() ) if $OPTS{trace}{search};
 
     my $isAdmin = $session->{users}->isAdmin( $session->{user} );
 
@@ -187,17 +184,21 @@ sub query {
       . ' ORDER BY web,name';
 
     $query = undef;    # not needed any more
-    Foswiki::Func::writeDebug( "Generated SQL:"
+    trace( "Generated SQL:"
           . Foswiki::Contrib::DBIStoreContrib::HoistSQL::_format_SQL($sql) )
-      if MONITOR;
+      if $OPTS{trace}{search};
 
     my $topicSet = [];
     my $sth      = Foswiki::Contrib::DBIStoreContrib::query($sql);
     while ( my @row = $sth->fetchrow_array() ) {
-    	my $_web = _convertFromUTF8( $row[0] );
-    	my $_name = _convertFromUTF8( $row[1] );
-    	Foswiki::Func::writeDebug("Decoded: " . $_web . " / " . $_name . " from UTF8 to " . $Foswiki::cfg{Site}{CharSet})
-    		if MONITOR;
+        my $_web  = _convertFromUTF8( $row[0] );
+        my $_name = _convertFromUTF8( $row[1] );
+        trace(  "Decoded: "
+              . $_web . " / "
+              . $_name
+              . " from UTF8 to "
+              . $Foswiki::cfg{Site}{CharSet} )
+          if $OPTS{trace}{search};
         push( @$topicSet, "$_web/$_name" );
     }
 
@@ -221,8 +222,8 @@ sub query {
           new Foswiki::Search::InfoCache($Foswiki::Plugins::SESSION);
 
         if ($query) {
-            Foswiki::Func::writeDebug( "Evaluating " . $meta->getPath() )
-              if MONITOR;
+            trace( "Evaluating " . $meta->getPath() )
+              if $OPTS{trace}{search};
 
             # this 'lazy load' will become useful when @$topics becomes
             # an infoCache
@@ -232,8 +233,8 @@ sub query {
                 $results{$Iweb}->addTopic($meta);
             }
             else {
-                Foswiki::Func::writeDebug( "NO MATCH for " . $query->stringify )
-                  if MONITOR;
+                trace( "NO MATCH for " . $query->stringify )
+                  if $OPTS{trace}{search};
             }
         }
         else {

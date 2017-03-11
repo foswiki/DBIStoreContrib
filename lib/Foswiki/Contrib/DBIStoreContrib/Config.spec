@@ -25,11 +25,20 @@ $Foswiki::cfg{Extensions}{DBIStoreContrib}{SQLite}{PCRE} = '/usr/lib/sqlite3/pcr
 # encountered in topic text. This should not normally be required, as plugins
 # should register all META that they create. Note that only META:NAME where
 # NAME matches /^[A-Z][A_Z0-9_]+$/ will be loaded.
-# Note that searching fiels that are created 'on the fly' is potentially
+# Note that searching fields that are created 'on the fly' is potentially
 # risky, as if the field is missing from a topic it will not be present
 # in the table, so finding topics without that field becomes tricky.
 # It is always better to register META.
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{AutoloadUnknownMETA} = 0;
+#  **BOOLEAN**
+# Set to true to automatically create new columns when fields in META are
+# not present in the schema. This should not normally be required, as plugins
+# should register all META that they create.
+# Note that searching fields that are created 'on the fly' is potentially
+# risky, as if the field is missing from a topic it will not be present
+# in the table, so finding topics without that field becomes tricky.
+# It is always better to register META.
+$Foswiki::cfg{Extensions}{DBIStoreContrib}{AutoAddUnknownFields} = 0;
 # **PERL**
 # Specify how to construct the database. Each table is given with a
 # list of the columns and their data types.

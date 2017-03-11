@@ -15,7 +15,7 @@ package Foswiki::Contrib::DBIStoreContrib::HoistSQL;
 use strict;
 use Assert;
 
-use Foswiki::Contrib::DBIStoreContrib                ();
+use Foswiki::Contrib::DBIStoreContrib qw(%OPTS trace);
 use Foswiki::Infix::Node                             ();
 use Foswiki::Query::Node                             ();
 use Foswiki::Query::Parser                           ();
@@ -24,8 +24,6 @@ use Foswiki::Func                                    ();
 
 # A Foswiki query parser
 our $parser;
-
-use constant MONITOR => Foswiki::Contrib::DBIStoreContrib::MONITOR;
 
 our $table_name_RE = qr/^\w+$/;
 
@@ -98,7 +96,7 @@ END {
 sub _SELECT {
     my (%opts) = @_;
     my $info = '';
-    if ( MONITOR && defined $opts{monitor} ) {
+    if ( $OPTS{trace}{sql} && defined $opts{monitor} ) {
         $info = _personality()->make_comment( $opts{monitor} );
     }
     my $pick = $opts{select};
@@ -108,11 +106,28 @@ sub _SELECT {
     my $sql = "SELECT$info $pick";
     while ( my ( $opt, $val ) = each %opts ) {
         next unless ( $opt && $opt =~ /^[A-Z]/ && defined $val );
-        $val = [$val] unless ( ref($val) );
+        print STDERR "UNEXPECTED $opt\n" unless ( $opt =~ /^(FROM|WHERE)$/ );
 
-        # Bracket subqueries for FROM etc
+ #    while ( my ( $opt, $val ) = each %opts ) {
+ #        next unless ( $opt && $opt =~ /^[A-Z]/ && defined $val );
+ #        $val = [$val] unless ( ref($val) );
+ #
+ #        # Bracket subqueries for FROM etc
+ #        $sql .=
+ #          " $opt " . join( ',', map { $_ =~ /^SELECT/ ? "($_)" : $_ } @$val );
+    }
+    if ( defined $opts{FROM} ) {
+        my $val = $opts{FROM};
+        $val = [$val] unless ( ref($val) );
         $sql .=
-          " $opt " . join( ',', map { $_ =~ /^SELECT/ ? "($_)" : $_ } @$val );
+          " FROM " . join( ',', map { $_ =~ /^SELECT/ ? "($_)" : $_ } @$val );
+    }
+
+    if ( defined $opts{WHERE} ) {
+        my $val = $opts{WHERE};
+        $val = [$val] unless ( ref($val) );
+        $sql .=
+          " WHERE " . join( ',', map { $_ =~ /^SELECT/ ? "($_)" : $_ } @$val );
     }
     return $sql;
 }
@@ -276,7 +291,7 @@ my $temp_id = 0;
 sub _alias {
     my $line = shift;
     my $tid = 't' . ( $temp_id++ );
-    $tid .= "_$line" if MONITOR;
+    $tid .= "_$line" if $OPTS{trace}{sql};
     return $tid;
 }
 
@@ -305,11 +320,11 @@ sub hoist {
         $TRUE_TYPE = _personality()->{true_type};
     }
 
-    Foswiki::Func::writeDebug( "HOISTING " . recreate($query) ) if MONITOR;
+    trace( "HOISTING " . recreate($query) ) if $OPTS{trace}{hoist};
 
     # Simplify the parse tree, work out type information.
     $query = _rewrite( $query, UNKNOWN );
-    Foswiki::Func::writeDebug( "Rewritten " . recreate($query) ) if MONITOR;
+    trace( "Rewritten " . recreate($query) ) if $OPTS{trace}{hoist};
 
     my %h = _hoist( $query, 'topic' );
     my $alias = _alias(__LINE__);    # SQL server requires this!
@@ -686,6 +701,7 @@ sub _hoist {
                 );
                 my $where = "($lhs_alias.tid=$rhs_alias.tid)";
                 if ( $optype == BOOLEAN ) {
+
                     #$where .= " AND ($expr)";
                     $expr   = $TRUE;
                     $optype = $TRUE_TYPE;
@@ -769,12 +785,12 @@ sub _hoist {
         _abort( "Don't know how to hoist '$op':", $node );
     }
 
-#    if (MONITOR) {
-#        Foswiki::Func::writeDebug( "Hoist " . recreate($node) . " ->");
-#        Foswiki::Func::writeDebug( "select $result{sel} from") if $result{sel};
-#        Foswiki::Func::writeDebug( "table name")               if $result{is_table_name};
-#        Foswiki::Func::writeDebug( _format_SQL( $result{sql} ) . "");
-#    }
+    #    if ($OPTS{trace}{hoist}) {
+    #        trace( "Hoist " . recreate($node) . " ->");
+    #        trace( "select $result{sel} from") if $result{sel};
+    #        trace( "table name")               if $result{is_table_name};
+    #        trace( _format_SQL( $result{sql} ) . "");
+    #    }
     return %result;
 }
 
@@ -857,7 +873,7 @@ sub _rewrite {
     my ( $node, $context ) = @_;
 
     my $before;
-    $before = recreate($node) if MONITOR;
+    $before = recreate($node) if $OPTS{trace}{hoist};
     my $rewrote = 0;
 
     my $op = $node->{op};
@@ -955,9 +971,8 @@ sub _rewrite {
         my $rhs = _rewrite( $node->{params}[1], VALUE );
 
         unless ( $lhs->{is_table} ) {
-            Foswiki::Func::writeDebug(
-                __LINE__ . " lhs may not be a table." . recreate($lhs) )
-              if MONITOR;
+            trace( __LINE__ . " lhs may not be a table." . recreate($lhs) )
+              if $OPTS{trace}{hoist};
         }
 
         # RHS must be a key.
@@ -1000,9 +1015,8 @@ sub _rewrite {
         my $nop = $op->{name};
     }
 
-    Foswiki::Func::writeDebug(
-        "$rewrote: Rewrote $before as " . recreate($node) )
-      if MONITOR;
+    trace( "$rewrote: Rewrote $before as " . recreate($node) )
+      if $OPTS{trace}{hoist};
     return $node;
 }
 

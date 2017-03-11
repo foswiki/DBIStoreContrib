@@ -16,7 +16,7 @@ our $NO_PREFS_IN_TOPIC = 1;
 our $SHORTDESCRIPTION =
 'Use DBI to implement searching using an SQL database. Supports SQL queries over Form data.';
 
-use constant TRACE => 0;
+use constant TRACE => 1;
 
 sub initPlugin {
     if ( $Foswiki::Plugins::SESSION->{store}->can('recordChange') ) {
@@ -24,7 +24,7 @@ sub initPlugin {
         # Will not enable this plugin if recordChange is present,
         # as this is Foswiki >=1.2
         Foswiki::Func::writeDebug(
-            "DBIStorePlugin not required; can recordChange")
+            "DBIStorePlugin not strictly required; can recordChange")
           if TRACE;
         return 0;
     }
@@ -38,7 +38,6 @@ sub initPlugin {
         *Foswiki::Store::QueryAlgorithms::DBIStoreContrib::getField =
           \&Foswiki::Store::QueryAlgorithms::BruteForce::getField;
     }
-
     return 1;
 }
 
@@ -107,21 +106,22 @@ sub afterRenameHandler {
           . ( $newa || '' ) )
       if TRACE;
 
-    my $oldo = 
-        new Foswiki::Meta( $Foswiki::Plugins::SESSION, $oldWeb, $oldTopic );
+    my $oldo =
+      new Foswiki::Meta( $Foswiki::Plugins::SESSION, $oldWeb, $oldTopic );
     my $newo =
-        new Foswiki::Meta( $Foswiki::Plugins::SESSION, $newWeb, $newTopic );
-        
+      new Foswiki::Meta( $Foswiki::Plugins::SESSION, $newWeb, $newTopic );
+
     Foswiki::Contrib::DBIStoreContrib::start();
-    
+
     if ($oldTopic) {
         Foswiki::Contrib::DBIStoreContrib::remove($oldo);    #, $olda );
         Foswiki::Contrib::DBIStoreContrib::insert($newo);    #, $newa );
-    } else {
-        #rename web
-        Foswiki::Contrib::DBIStoreContrib::rename($oldo, $newo);
     }
-    
+    else {
+        #rename web
+        Foswiki::Contrib::DBIStoreContrib::rename( $oldo, $newo );
+    }
+
     Foswiki::Contrib::DBIStoreContrib::commit();
 }
 

@@ -50,8 +50,8 @@ sub startup {
     # MySQL has to be kicked in the ANSIs
     $this->{dbh}->do("SET sql_mode='ANSI'");
     $this->{dbh}->do('SELECT @sql_mode');
-	
-	#set to UTF8
+
+    #set to UTF8
     $this->{dbh}->do("SET NAMES utf8");
 }
 
@@ -75,11 +75,11 @@ sub regexp {
     # Nor \d, \D
     $rhs =~ s/(^|(?<=[^\\]))\\d/[0-9]/g;
     $rhs =~ s/(^|(?<=[^\\]))\\D/[^0-9]/g;
-    
+
     # Nor \b, \B
     $rhs =~ s/\\\\[bB](.*?)\\\\[bB]/\[\[:<:\]\]$1\[\[:>:\]\]/g;
-	$rhs =~ s/\\\\[bB]($|\|)/\[\[:>:\]\]$1/g;
-	$rhs =~ s/(^|\|)\\\\[bB]/$1\[\[:<:\]\]/g;
+    $rhs =~ s/\\\\[bB]($|\|)/\[\[:>:\]\]$1/g;
+    $rhs =~ s/(^|\|)\\\\[bB]/$1\[\[:<:\]\]/g;
 
     # Nor \s, \S, \w, \W
     $rhs =~ s/(^|(?<=[^\\]))\\s/[ \011\012\015]/g;
@@ -91,14 +91,15 @@ sub regexp {
     #$rhs =~ s/(?<=[^\\])(\(.*\)|\[.*?\]|\\.|.)\?/($1|)/g;    # ?
     $rhs =~ s/([\+\*])\?/$1/g;
     $rhs =~ s/\?://g;
-         # Handle special characters
+
+    # Handle special characters
     $rhs =~ s/(?<=[^\\])\\n/\n/g;             # will this work?
     $rhs =~ s/(?<=[^\\])\\r/\r/g;
     $rhs =~ s/(?<=[^\\])\\t/\t/g;
     $rhs =~ s/(?<=[^\\])\\b//g;               # not supported
     $rhs =~ s/(?<=[^\\])\{\d+(,\d*)?\}//g;    # not supported
                                               # Escape '
-    #$rhs =~ s/\\/\\\\/g;
+                                              #$rhs =~ s/\\/\\\\/g;
 
     return "$lhs REGEXP ('$rhs')";
 }

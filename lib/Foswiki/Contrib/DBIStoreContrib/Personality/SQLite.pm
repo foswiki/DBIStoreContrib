@@ -57,7 +57,11 @@ sub column_exists {
     my $sql = <<SQL;
 PRAGMA table_info($table)
 SQL
-    return $this->{dbh}->selectall_arrayref($sql);
+    my $rows = $this->{dbh}->selectall_arrayref($sql);
+    foreach my $i (@$rows) {
+        return 1 if ( $i->[1] eq $column );
+    }
+    return 0;
 }
 
 sub get_columns {
@@ -85,7 +89,7 @@ sub regexp {
     # SQLite uses PCRE, which supports all of Perl except hex
     # char codes
     $rhs =~ s/\\x([0-9a-f]{2})/_char("0x$1")/gei;
-    $rhs =~ s/\\x{([0-9a-f]+)}/_char("0x$1")/gei;
+    $rhs =~ s/\\x\{([0-9a-f]+)\}/_char("0x$1")/gei;
 
     # Escape '
     $rhs =~ s/'/\\'/g;

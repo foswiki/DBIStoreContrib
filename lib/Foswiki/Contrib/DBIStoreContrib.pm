@@ -21,11 +21,24 @@ use Foswiki       ();
 use Foswiki::Func ();
 use DBI           ();
 
-our $VERSION = '1.2';           # plugin version is also locked to this
-our $RELEASE = '18 Oct 2014';
+our $VERSION = '1.3';          # plugin version is also locked to this
+our $RELEASE = '9 Mar 2017';
 
-# Very verbose debugging. Used by all modules in the suite.
-use constant MONITOR => 0;
+# Global options, used to control tracing etc throughout the module
+use constant DEBUG => 1;
+our %OPTS = (
+    trace => {
+        load    => DEBUG,
+        search  => DEBUG,
+        updates => DEBUG,
+        load    => DEBUG
+    },
+    debug => 0
+);
+
+require Exporter;
+our @ISA       = qw(Exporter);
+our @EXPORT_OK = qw(%OPTS trace);
 
 our $SHORTDESCRIPTION = 'Use DBI to implement a store using an SQL database.';
 
@@ -69,7 +82,7 @@ sub personality {
 
         eval "require $module";
         if ($@) {
-            _say $@ if MONITOR;
+            trace $@;
             die "Failed to load personality module $module";
         }
         $personality = $module->new();
@@ -77,8 +90,14 @@ sub personality {
     return $personality;
 }
 
-sub _say {
-    Foswiki::Func::writeDebug( join( "\n", @_ ) );
+# Used throughout the module
+sub trace {
+    if ( $OPTS{cli} ) {
+        print STDERR join( "\n", @_ ) . "\n";
+    }
+    else {
+        Foswiki::Func::writeDebug( join( "\n", @_ ) );
+    }
 }
 
 # Connect on demand - PRIVATE
@@ -100,8 +119,8 @@ sub _connect {
             $Foswiki::cfg{Extensions}{DBIStoreContrib}{Password} = '';
         }
 
-        _say "CONNECT $Foswiki::cfg{Extensions}{DBIStoreContrib}{DSN}..."
-          if MONITOR;
+        trace "CONNECT $Foswiki::cfg{Extensions}{DBIStoreContrib}{DSN}..."
+          if $OPTS{trace}{load};
 
         $dbh = DBI->connect(
             $Foswiki::cfg{Extensions}{DBIStoreContrib}{DSN},
@@ -110,7 +129,7 @@ sub _connect {
             { RaiseError => 1, AutoCommit => 1 }
         ) or die $DBI::errstr;
 
-        _say "Connected" if MONITOR;
+        trace "Connected" if $OPTS{trace}{load};
 
         personality()->startup($dbh);
     }
@@ -118,21 +137,21 @@ sub _connect {
     # Check if the DB is initialised with a quick sniff of the tables
     # to see if all the ones we expect are there
     if ( $personality->table_exists( 'metatypes', 'topic' ) ) {
-        if (MONITOR) {
+        if ( $OPTS{trace}{load} ) {
 
             # Check metatypes integrity
             my $tables = $dbh->selectcol_arrayref('SELECT name FROM metatypes');
             foreach my $table (@$tables) {
                 unless ( $personality->table_exists($table) ) {
-                    _say "$table is in metatypes but does not exist";
+                    trace "$table is in metatypes but does not exist";
                 }
             }
         }
         return 1 unless ($session);
-        _say "HARD RESET" if MONITOR;
+        trace "HARD RESET" if $OPTS{trace}{load};
     }
-    elsif (MONITOR) {
-        _say "Base tables don't exist";
+    elsif ( $OPTS{trace}{load} ) {
+        trace "Base tables don't exist";
         ASSERT($session);
     }
 
@@ -152,19 +171,19 @@ sub _connect {
     foreach my $table ( keys %tables ) {
         if ( $personality->table_exists($table) ) {
             $dbh->do( 'DROP TABLE ' . $personality->safe_id($table) );
-            _say "Dropped $table" if MONITOR;
+            trace "Dropped $table" if $OPTS{trace}{load};
         }
     }
 
     # No topic table, or we've had a hard reset
-    _say "Loading DB schema" if MONITOR;
+    trace "Loading DB schema" if $OPTS{trace}{load};
     _createTables();
 
     # We only preload after a hard reset
     if ( $session && !$Foswiki::inUnitTestMode ) {
-        _say "Schema loaded; preloading content" if MONITOR;
+        trace "Schema loaded; preloading content" if $OPTS{trace}{load};
         _preload($session);
-        _say "DB preloaded" if MONITOR;
+        trace "DB preloaded" if $OPTS{trace}{load};
     }
     return 1;
 }
@@ -205,7 +224,7 @@ sub _createTable {
     }
     my $cols = join( ',', @cols );
     my $sql = "CREATE TABLE $sn ( $cols )";
-    _say $sql if MONITOR;
+    trace $sql if $OPTS{trace}{load};
     $dbh->do($sql);
 
     # Add non-primary tables to the table of tables
@@ -224,7 +243,7 @@ sub _createTable {
           . $personality->safe_id("IX_${tname}_${cname}") . ' ON '
           . $personality->safe_id($tname) . '('
           . $personality->safe_id($cname) . ')';
-        _say $sql if MONITOR;
+        trace $sql if $OPTS{trace}{load};
         $dbh->do($sql);
     }
 }
@@ -240,7 +259,7 @@ sub _createTables {
     {
         next if $name eq 'metatypes' || $name =~ /^_/;
 
-        _say "Creating table for $name" if MONITOR;
+        trace "Creating table for $name" if $OPTS{trace}{load};
         _createTable( $name, $schema );
     }
     $dbh->do('COMMIT') if $personality->{requires_COMMIT};
@@ -268,7 +287,7 @@ sub _preloadWeb {
     while ( $tit->hasNext() ) {
         my $t = $tit->next();
         my $topic = Foswiki::Meta->load( $session, $w, $t );
-        _say "Preloading topic $w/$t" if MONITOR;
+        trace "Preloading topic $w/$t" if $OPTS{trace}{load};
         insert( $topic, undef, "$web.$t" );
     }
 
@@ -279,6 +298,7 @@ sub _preloadWeb {
 }
 
 sub _convertToUTF8 {
+    return $_[0] if ( $Foswiki::cfg{Site}{CharSet} eq 'utf-8' );
     my $text = shift;
     $text = Encode::decode( $Foswiki::cfg{Site}{CharSet}, $text );
     $text = Encode::encode( 'utf-8', $text );
@@ -287,9 +307,11 @@ sub _convertToUTF8 {
 
 sub _truncate {
     my ( $data, $size ) = @_;
+    die "wanekr" . join( ' ', caller ) unless defined $data;
+    die "wane" . join( ' ', caller ) unless defined $data;
     return $data unless defined($size) && length($data) > $size;
     Foswiki::Func::writeWarning( 'Truncating ' . length($data) . " to $size" )
-      if MONITOR;
+      if $OPTS{trace}{load};
     return substr( $data, 0, $size - 3 ) . '...';
 }
 
@@ -332,6 +354,91 @@ sub disconnect {
         $dbh->disconnect();    # SMELL: keep around in FCGI?
         undef $dbh;
     }
+}
+
+# Get the named table from the schema, or (if appropriate) create it
+sub _findOrCreateTable {
+    my ( $type, $mo ) = @_;
+
+    my $schema = $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type};
+
+    # Make sure it's registered, or we are auto-extending the schema
+    return $schema if $schema;
+
+    return undef
+      unless ( $Foswiki::cfg{Extensions}{DBIStoreContrib}{AutoloadUnknownMETA}
+        && $type =~ /^[A-Z][A-Z0-9_]+$/ );
+
+    # The table is not in the schema. Is it in the DB?
+    if ( $personality->table_exists($type) ) {
+
+        # Table is in the DB; pull the column names from there
+        # and add them to the schema
+        $schema = { map { $_ => '_DEFAULT' } $personality->get_columns($type) };
+        $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type} = $schema;
+
+        return $schema;
+    }
+
+    # The table is not in the DB either. Try deduce the schema
+    # from the data.
+    $schema = {
+        tid => {
+            type =>
+              $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}->{TOPICINFO}
+              ->{tid}->{type}
+        }
+    };
+
+    # Check the entries to ensure we have picked up all the
+    # columns. We read *all* entries so we get all columns.
+    foreach my $item ( $mo->find($type) ) {
+        foreach my $col ( keys(%$item) ) {
+            $schema->{$col} ||= '_DEFAULT';
+        }
+    }
+    trace "Creating fly table for $type" if $OPTS{trace}{load};
+    _createTable( $type, $schema );
+
+    $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type} = $schema;
+
+    return $schema;
+}
+
+# Determine if the column can be used, adding it if that's allowed
+sub _findOrCreateColumn {
+    my ( $col, $schema, $type ) = @_;
+
+    # The column might be in the schema but not in the DB
+    # if there was a race condition and someone deleted the
+    # table under us. Table deletion is very rare, and admin
+    # only, so this is an acceptable risk.
+    return $col if ( $schema->{$col} );
+
+    return undef
+      unless $Foswiki::cfg{Extensions}{DBIStoreContrib}{AutoAddUnknownFields};
+
+    # The column might be in the DB but not in
+    # the schema. This may happen if previous
+    # meta-data caused the column to be added.
+    unless ( $personality->column_exists( $type, $col ) ) {
+        my $sql =
+            'ALTER TABLE '
+          . $personality->safe_id($type) . ' ADD '
+          . $personality->safe_id($col) . ' '
+          . $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{_DEFAULT}
+          ->{type};
+        trace $sql if $OPTS{trace}{load};
+        $dbh->do($sql);
+    }
+
+    trace "Added '$type.$col' to the schema" if $OPTS{trace}{load};
+
+    # _column will give us the default type if
+    # the column name isn't matched
+    $schema->{$col} = _column( $type, $col );
+
+    return $col;
 }
 
 =begin TML
@@ -377,68 +484,25 @@ sub insert {
         }
     }
     elsif ( $mo->topic() ) {
-        #todo: concurrency? what if two topics are inserted at the same time?
+
+        # SMELL: concurrency? what if two topics are inserted at the same time?
         my $tid = $dbh->selectrow_array('SELECT MAX(tid) FROM topic')
           || 0;
         $tid++;
-        _say "\tInsert $tid" if MONITOR;
-        my $text = _convertToUTF8( $mo->text() );
-        my $esf  = _convertToUTF8( $mo->getEmbeddedStoreForm() );
-        my $topicName = _convertToUTF8($mo->topic());
+        trace "\tInsert $tid" if $OPTS{trace}{load};
+        my $text      = _convertToUTF8( $mo->text() );
+        my $esf       = _convertToUTF8( $mo->getEmbeddedStoreForm() );
+        my $topicName = _convertToUTF8( $mo->topic() );
         $dbh->do(
             'INSERT INTO topic (tid,web,name,text,raw) VALUES (?,?,?,?,?)',
             {}, $tid, $mo->web(), $topicName, $text, $esf );
 
         foreach my $type ( keys %$mo ) {
 
-            # Make sure it's registered.
-            next
-              unless (
-                defined $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}
-                {$type}
-                || $Foswiki::cfg{Extensions}{DBIStoreContrib}
-                {AutoloadUnknownMETA} && $type =~ /^[A-Z][A-Z0-9_]+$/ );
-
             # Make sure the table exists
-            my $schema =
-              $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type};
+            my $schema = _findOrCreateTable( $type, $mo );
 
-            unless ($schema) {
-
-                # The table is not in the schema. Is it in the DB?
-                if ( $personality->table_exists($type) ) {
-
-                    # Pull the column names from the DB
-                    $schema =
-                      { map { $_ => '_DEFAULT' }
-                          $personality->get_columns($type) };
-                    $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type} =
-                      $schema;
-                }
-                else {
-                    # The table is not in the DB either. Try deduce the schema
-                    # from the data.
-                    $schema = {
-                        tid => {
-                            type =>
-                              $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}
-                              ->{TOPICINFO}->{tid}->{type}
-                        }
-                    };
-
-                    # Check the entries to ensure we have picked up all the
-                    # columns. We read *all* entries so we get all columns.
-                    foreach my $item ( $mo->find($type) ) {
-                        foreach my $col ( keys(%$item) ) {
-                            $schema->{$col} ||= '_DEFAULT';
-                        }
-                    }
-                    _say "Creating fly table for $type" if MONITOR;
-                    $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}->{$type}
-                      = $schema;
-                    _createTable( $type, $schema );
-                }
-            }
+            next unless $schema;
 
             # The table might be in the schema but not in the database
             # if it is deleted from the database while we are not looking.
@@ -449,35 +513,15 @@ sub insert {
             my $data = $mo->{$type};
 
             foreach my $item (@$data) {
-                my @kns = keys(%$item);
+                my @kns;
 
-                # Check that the table is configured to accept this data
-                foreach my $kn (@kns) {
-                    unless ( $schema->{$kn} ) {
-
-                        # The column is not in the schema
-                        unless ( $personality->column_exists( $type, $kn ) ) {
-
-                            # The column might be in the DB but not in
-                            # the schema. This is unlikely, but possible.
-
-                            # _column will give us the default if the column
-                            # name isn't matched
-                            $schema->{$kn} = _column( $type, $kn );
-
-                            $dbh->do( 'ALTER TABLE '
-                                  . $personality->safe_id($type) . ' ADD '
-                                  . $personality->safe_id($kn) . ' '
-                                  . $schema->{$kn}->{type} );
-                        }
-                    }
-
-                    # The column might be in the schema but not in the DB
-                    # if there was a race condition and someone deleted the
-                    # table under us. Table deletion is very rare, and admin
-                    # only, so this is an acceptable risk.
+                # Check that the table has the columns to accept this data
+                foreach my $kn ( keys(%$item) ) {
+                    my $col = _findOrCreateColumn( $kn, $schema, $type );
+                    push( @kns, $col ) if $col;
                 }
 
+                # All tables have 'tid'
                 unshift( @kns, 'tid' );
                 my $sql =
                     'INSERT INTO '
@@ -487,19 +531,28 @@ sub insert {
                   . join( ',', map { '?' } @kns ) . ")";
                 shift(@kns);
 
-                _say "$sql [tid,"
-                  . join( ',', map { _truncate( $item->{$_}, 80 ) } @kns ) . ']'
-                  if MONITOR;
+                trace "$sql [tid," . join(
+                    ',',
+                    map {
+                        defined $item->{$_}
+                          ? _truncate( $item->{$_}, 80 )
+                          : 'NULL'
+                    } @kns
+                  )
+                  . ']'
+                  if $OPTS{trace}{load};
 
                 $dbh->do(
                     $sql,
                     {},
                     $tid,
                     map {
-                        _truncate(
+                        defined $item->{$_}
+                          ? _truncate(
                             _convertToUTF8( $item->{$_} ),
                             _column( $type, $_ )->{truncate_to}
                           )
+                          : undef
                     } @kns
                 );
             }
@@ -525,12 +578,12 @@ sub remove {
     my ( $mo, $attachment ) = @_;
 
     _connect();
-    
-    my $webName = _convertToUTF8($mo->web());
-    
-    if ($mo->topic()) {
-        my $topicName = _convertToUTF8($mo->topic());
-        
+
+    my $webName = _convertToUTF8( $mo->web() );
+
+    if ( $mo->topic() ) {
+        my $topicName = _convertToUTF8( $mo->topic() );
+
         my $sql = "SELECT tid FROM topic WHERE topic.web='" . $webName . "'";
         $sql .= " AND topic.name='" . $topicName . "'";
         my $tids = $dbh->selectcol_arrayref($sql);
@@ -545,7 +598,8 @@ sub remove {
             # That is done at a much higher level in Foswiki::Meta when the
             # referring topic has it's meta-data rewritten.
             # Here we simply clear down the raw data stored for the attachment.
-            if ( $personality->column_exists( 'FILEATTACHMENT', 'serialised' ) ) {
+            if ( $personality->column_exists( 'FILEATTACHMENT', 'serialised' ) )
+            {
                 my $tid =
                   $dbh->selectrow_array( 'SELECT tid FROM topic '
                       . "WHERE web='"
@@ -555,17 +609,18 @@ sub remove {
                       . "'" );
                 ASSERT($tid) if DEBUG;
 
-          # TODO:
-          #            $dbh->do( 'UPDATE ' . $personality->safe_id('FILEATTACHMENT')
-          #                      . " SET serialised=''"
-          #                      . " WHERE tid='$tid' AND name='$attachment'" );
+      # TODO:
+      #            $dbh->do( 'UPDATE ' . $personality->safe_id('FILEATTACHMENT')
+      #                      . " SET serialised=''"
+      #                      . " WHERE tid='$tid' AND name='$attachment'" );
             }
         }
         else {
 
             foreach my $tid (@$tids) {
-                _say "\tRemove $tid" if MONITOR;
-                my $tables = $dbh->selectcol_arrayref('SELECT name FROM metatypes');
+                trace "\tRemove $tid" if $OPTS{trace}{load};
+                my $tables =
+                  $dbh->selectcol_arrayref('SELECT name FROM metatypes');
                 foreach my $table ( 'topic', @$tables ) {
                     if ( $personality->table_exists($table) ) {
                         my $tn = $personality->safe_id($table);
@@ -591,13 +646,15 @@ sub rename {
     my ( $mo, $mn ) = @_;
 
     _connect();
-    
-    if ($mo->web() && !$mo->topic()) {
-        my $oldWebName = _convertToUTF8($mo->web());
-        my $newWebName = _convertToUTF8($mn->web());
-        
-        _say "\tRename web from $oldWebName to $newWebName" if MONITOR;
-        $dbh->do( "UPDATE topic SET web = '$newWebName' WHERE web = '$oldWebName'" );
+
+    if ( $mo->web() && !$mo->topic() ) {
+        my $oldWebName = _convertToUTF8( $mo->web() );
+        my $newWebName = _convertToUTF8( $mn->web() );
+
+        trace "\tRename web from $oldWebName to $newWebName"
+          if $OPTS{trace}{load};
+        $dbh->do(
+            "UPDATE topic SET web = '$newWebName' WHERE web = '$oldWebName'");
     }
 }
 
@@ -633,7 +690,7 @@ sub reset {
     # Connect with hard reset
     eval { _connect($session); };
     if ($@) {
-        _say $@ if MONITOR;
+        trace $@;
         die $@;
     }
 }

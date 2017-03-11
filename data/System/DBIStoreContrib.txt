@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ProjectContributor" comment="save topic" date="1401385201" format="1.1" version="1"}%
+META:TOPICINFO{author="ProjectContributor" comment="save topic" date="1401385201" format="1.1" version="1"}%
 ---+!! !DBIStoreContrib
 <!--
    * Set SHORTDESCRIPTION = %$SHORTDESCRIPTION%
@@ -158,7 +158,7 @@ Make you set a collation sequence for the database. For example,
 <verbatim>
 ALTER DATABASE Foswiki COLLATE Latin1_General_100_CS_AS_SC;
 </verbatim>
-Without this, upper and lower case strings will be compared case-insensitively. If you don't, it may be fatal to the DBIStoreContrib, as the DB will be unable to distinguish =ThisTopicName= and =THISTOPICNAME.
+Without this, upper and lower case strings will be compared case-insensitively, and the DB will be unable to distinguish =ThisTopicName= and =THISTOPICNAME=.
 
 ---+++ SQLite Notes
 SQLite requires the =pcre= module to be installed to support regular expression searches. The path to this module is set up in =configure=.

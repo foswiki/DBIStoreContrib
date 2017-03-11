@@ -24,15 +24,12 @@ use warnings;
 use Assert;
 use Encode;
 
-use Foswiki::Meta                     ();
-use Foswiki::Contrib::DBIStoreContrib ();
+use Foswiki::Meta ();
+use Foswiki::Contrib::DBIStoreContrib qw(%OPTS trace);
 
 # @ISA not used directly, as it's set by the processing of the {ImplementationClasses}
 # in 1.2+, and is irrelevant to 1.1-
 # our @ISA = ('Foswiki::Store::Store');
-
-# Monitor update events
-use constant MONITOR => 0;
 
 # Constructor used when the object participates in a recordChange chain
 # in a 1.2+ store.
@@ -44,10 +41,6 @@ sub new {
 sub DESTROY {
     my $this = shift;
     Foswiki::Contrib::DBIStoreContrib::disconnect();
-}
-
-sub _say {
-    Foswiki::Contrib::DBIStoreContrib::_say(@_);
 }
 
 =begin TML
@@ -70,7 +63,7 @@ sub recordChange {
     return if ( defined( $args{newattachment} ) );
     return if ( defined( $args{oldattachment} ) );
 
-    _say( $args{verb} . join( ',', keys(%args) ) ) if MONITOR;
+    trace( $args{verb} . join( ',', keys(%args) ) ) if $OPTS{trace}{updates};
 
     if ( $args{verb} eq 'remove' ) {
         Foswiki::Contrib::DBIStoreContrib::start();
@@ -117,10 +110,11 @@ sub DBI_query {
         }
     };
     if ($@) {
-        _say "$@\n" if MONITOR;
+        trace "$@\n" if $OPTS{trace}{updates};
         die $@;
     }
-    _say 'HITS: ' . scalar(@names), map { "\t$_" } @names if MONITOR;
+    trace 'HITS: ' . scalar(@names), map { "\t$_" } @names
+      if $OPTS{trace}{updates};
     return \@names;
 }
 

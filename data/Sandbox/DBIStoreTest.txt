@@ -1,0 +1,83 @@
+%META:TOPICINFO{author="SimianApe" comment="save topic" date="1489067039" format="1.1" version="2"}%
+<!--
+<verbatim>
+Plain search options
+   * Set SOP = topic="DBIStoreTest*" nonoise="on" format="" footer="$ntopics" separator=""
+Query search options
+   * Set QOP = type="query" %SOP%
+Number of topics expected
+   * Set NT = %SEARCH{%SOP% "P"}%
+
+   * Set QEQ = %IF{"%res%=0%SEARCH{%QOP% "%cond%"}%" then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt  (got $percentSEARCH{$percentQOP$percent $quot%cond%$quot}$percent expected %res%)"}% | %cond%
+   * Set QGT = %IF{"0%SEARCH{%QOP% "%cond%"}%>%res%" then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt (got $percentSEARCH{$percentQOP$percent $quot%cond%$quot}$percent expected %res%)"}% | %cond%
+
+   * Set ITE = then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt "
+</verbatim>
+-->
+This topic is used for testing the DBIStoreContrib.
+Note that this topic, and the DBIStoreTestForm topic,
+have to be present in the database cache for the tests to work.
+
+To reset the cache, click on %SCRIPTURL{"view"}%/%WEB%/%TOPIC%?dbistore_init=1 (slow)
+
+To reload this topic, click on %SCRIPTURL{"view"}%/%WEB%/%TOPIC%?dbistore_update=1
+
+To reload the companion form topic, click on %SCRIPTURL{"view"}%/%WEB%/DBIStoreTestForm?dbistore_update=1
+
+<!-- TA number of hist TB search query TC -->
+| Non-query search | %IF{"%NT%>0" then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt "}% |
+| Regex search | %IF{" 1 =0%SEARCH{ "fruitbat" type="regex" %SOP%}%" %ITE% }% ||
+| Regex search | %IF{" 0 =0%SEARCH{ "fruit[^b]at" type="regex" %SOP%}%" %ITE% }% ||
+| False | %QEQ{cond="0" res="0"}% |
+| False | %QEQ{cond="00" res="0"}% |
+| False | %QEQ{cond="'0'" res="0"}% |
+| True | %QEQ{cond="1" res="%NT%"}% |
+| True | %QEQ{cond="01" res="%NT%"}% |
+| True | %QEQ{cond="'1'" res="%NT%"}% |
+| &gt; literal | %QEQ{cond="3>20" res="0"}% |
+| &gt; literal | %QEQ{cond="30>2" res="%NT%"}% |
+| &lt; literal | %QEQ{cond="3<20" res="%NT%"}% |
+| &lt; literal | %QEQ{cond="'3'<'20'" res="%NT%"}% |
+| Simple regex | %QEQ{res="2" cond="'AA'=~'A'" }% |
+| Numeric Field | %QEQ{cond="number" res="%NT%"}% |
+| Boolean field | %QEQ{cond="boolean" res="1"}% |
+| Field cmp | %QEQ{cond="number=99" res="1"}% |
+| Field cmp | %QEQ{cond="99=number" res="1"}% |
+| Field uop | %QEQ{cond="length(number)=2" res="1"}% |
+| Array | %QEQ{cond="fields[name='string'].value='String'" res="1"}% |
+| Table.selector | %QEQ{res="2" cond="form.name='DBIStoreTestForm' AND length('x')=1" }% |
+| Simple LIKE | %QEQ{ res="1" cond="name~'DBIStoreT*orm'" }% |
+| Simple AND | %QEQ{ res="1" cond="number=99 AND string='String'" }% |
+| Simple OR | %QEQ{ res="1" cond="number=99 OR string='String'" }% |
+| Const-table cmp | %QEQ{ res="1" cond="666=fields[name='number'].value" }% |
+| Table-const cmp | %QEQ{ res="1" cond="fields[name='number'].value=666" }% |
+| Simple ref true | %QEQ{ res="2" cond="'DBIStoreTestForm'/number=666" }% |
+| Simple ref false | %QEQ{ res="0" cond="'DBIStoreTest'/number=666" }% |
+| Complex re | %QEQ{ res="1" cond="fields[name='string' AND value=~'^St.([in]).*'].name!=''" }% |
+| Constant op field | %QEQ{ res="1" cond="fields[99=value].name" }% |
+| Complex conjunction | %QEQ{ res="2" cond="number=99 OR ( string='test' AND not boolean )" }% |
+| name=undefined | %QEQ{ res="0" cond="name=undefined" }% |
+| undefined=name | %QEQ{ res="0" cond="undefined=name" }% |
+| undefined=undefined | %QEQ{ res="2" cond="undefined=undefined" }% |
+| Length(num) | %QEQ{ res="2" cond="length(99)" }% |
+| Length(str) | %QEQ{ res="2" cond="length('99')&gt;0" }% |
+| Deep where | %QEQ{ res="1" cond="fields[value=fields[name='number'].value].name" }% |
+| No such field | %QEQ{ res="0" cond="fields['x'].name='x'" }% |
+| Numeric index | %QEQ{ res="2" cond="fields[0].name='number'" }% |
+| Numeric index | %QEQ{ res="1" cond="fields[4].name='Huge'" }% |
+| Table Ref | %QEQ{ res="2" cond="'DBIStoreTest'/META:FORM.name='DBIStoreTestForm'" }% |
+| Complex ref | %QEQ{ res="2" cond="(fields[name='Other'].value)/META:FORM.name='DBIStoreTestForm'" }% |
+| Table=Table | %QEQ{res="0" cond="fields=attachments"}% |
+<!--
+Can't get escapes to work with a simple search, so not much hope for the
+contrib!
+| Escapes |  %QEQ{res="1" cond="name =~ '\\\'"}% |
+| Escapes |  %QEQ{res="1" cond="name =~ '\\\.x.y\\\'"}% |
+-->
+
+%META:FORM{name="DBIStoreTestForm"}%
+%META:FIELD{name="number" title="number" value="99"}%
+%META:FIELD{name="string" title="string" value="String"}%
+%META:FIELD{name="boolean" title="boolean" value="Boolean"}%
+%META:FIELD{name="Other" title="Other" value="DBIStoreTestForm"}%
+%META:PREFERENCE{name="Red" value="0"}%
