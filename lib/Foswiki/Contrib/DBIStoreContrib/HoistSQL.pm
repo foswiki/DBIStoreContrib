@@ -15,7 +15,7 @@ package Foswiki::Contrib::DBIStoreContrib::HoistSQL;
 use strict;
 use Assert;
 
-use Foswiki::Contrib::DBIStoreContrib qw(%OPTS trace);
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace);
 use Foswiki::Infix::Node                             ();
 use Foswiki::Query::Node                             ();
 use Foswiki::Query::Parser                           ();
@@ -99,7 +99,7 @@ END {
 sub _SELECT {
     my (%opts) = @_;
     my $info = '';
-    if ( $OPTS{trace}{sql} && defined $opts{comment} ) {
+    if ( $TRACE{sql} && defined $opts{comment} ) {
         $info = _personality()->make_comment( $opts{comment} );
     }
     my $pick = $opts{select};
@@ -276,7 +276,7 @@ my $temp_id = 0;
 sub _alias {
     my $line = shift;
     my $tid = 't' . ( $temp_id++ );
-    $tid .= "_$line" if $OPTS{trace}{sql};
+    $tid .= "_$line" if $TRACE{sql};
     return $tid;
 }
 
@@ -305,11 +305,11 @@ sub hoist {
         $TRUE_TYPE = _personality()->{true_type};
     }
 
-    trace( "HOISTING " . recreate($query) ) if $OPTS{trace}{hoist};
+    trace( "HOISTING " . recreate($query) ) if $TRACE{hoist};
 
     # Simplify the parse tree, work out type information.
     $query = _rewrite( $query, UNKNOWN );
-    trace( "Rewritten " . recreate($query) ) if $OPTS{trace}{hoist};
+    trace( "Rewritten " . recreate($query) ) if $TRACE{hoist};
 
     my %h = _hoist( $query, 'topic' );
     my $alias = _alias(__LINE__);    # SQL server requires this!
@@ -770,7 +770,7 @@ sub _hoist {
         _abort( "Don't know how to hoist '$op':", $node );
     }
 
-    #    if ($OPTS{trace}{hoist}) {
+    #    if ($TRACE{hoist}) {
     #        trace( "Hoist " . recreate($node) . " ->");
     #        trace( "select $result{sel} from") if $result{sel};
     #        trace( "table name")               if $result{is_table_name};
@@ -858,7 +858,7 @@ sub _rewrite {
     my ( $node, $context ) = @_;
 
     my $before;
-    $before = recreate($node) if $OPTS{trace}{hoist};
+    $before = recreate($node) if $TRACE{hoist};
     my $rewrote = 0;
 
     my $op = $node->{op};
@@ -957,7 +957,7 @@ sub _rewrite {
 
         unless ( $lhs->{is_table} ) {
             trace( __LINE__ . " lhs may not be a table." . recreate($lhs) )
-              if $OPTS{trace}{hoist};
+              if $TRACE{hoist};
         }
 
         # RHS must be a key.
@@ -1001,7 +1001,7 @@ sub _rewrite {
     }
 
     trace( "$rewrote: Rewrote $before as " . recreate($node) )
-      if $OPTS{trace}{hoist};
+      if $TRACE{hoist};
     return $node;
 }
 

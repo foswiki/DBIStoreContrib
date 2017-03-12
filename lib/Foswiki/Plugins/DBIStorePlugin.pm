@@ -6,9 +6,9 @@ package Foswiki::Plugins::DBIStorePlugin;
 use strict;
 use warnings;
 
-use Foswiki::Contrib::DBIStoreContrib ();
-use Foswiki::Store                    ();
-use Foswiki::Func                     ();
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace);
+use Foswiki::Store ();
+use Foswiki::Func  ();
 
 our $VERSION           = $Foswiki::Contrib::DBIStoreContrib::VERSION;
 our $RELEASE           = $Foswiki::Contrib::DBIStoreContrib::RELEASE;
@@ -16,17 +16,12 @@ our $NO_PREFS_IN_TOPIC = 1;
 our $SHORTDESCRIPTION =
 'Use DBI to implement searching using an SQL database. Supports SQL queries over Form data.';
 
-use constant TRACE => 1;
-
 sub initPlugin {
-    if ( $Foswiki::Plugins::SESSION->{store}->can('recordChange') ) {
 
-        # Will not enable this plugin if recordChange is present,
-        # as this is Foswiki >=1.2
-        Foswiki::Func::writeDebug(
-            "DBIStorePlugin not strictly required; can recordChange")
-          if TRACE;
-        return 0;
+    foreach my $k (
+        split( /\s+/, $Foswiki::cfg{Extensions}{DBIStoreContrib}{Trace} ) )
+    {
+        $TRACE{$k} = 1;
     }
 
     # If the getField method is missing, then get it from the BruteForce
@@ -34,10 +29,14 @@ sub initPlugin {
     require Foswiki::Store::QueryAlgorithms::DBIStoreContrib;
     unless ( Foswiki::Store::QueryAlgorithms::DBIStoreContrib->can('getField') )
     {
+        trace('DBIStorePlugin: monkey-patching getField') if $TRACE{plugin};
+
         require Foswiki::Store::QueryAlgorithms::BruteForce;
         *Foswiki::Store::QueryAlgorithms::DBIStoreContrib::getField =
           \&Foswiki::Store::QueryAlgorithms::BruteForce::getField;
     }
+
+    trace('DBIStorePlugin: initialised') if $TRACE{plugin};
     return 1;
 }
 
@@ -52,16 +51,15 @@ sub commonTagsHandler {
     if ( Foswiki::Func::getRequestObject->param('dbistore_reset')
         && Foswiki::Func::isAnAdmin() )
     {
-        Foswiki::Func::writeDebug('DBIStorePlugin: Resetting') if TRACE;
+        trace('DBIStorePlugin: Resetting') if $TRACE{plugin};
         Foswiki::Func::getRequestObject->delete('dbistore_reset');
         Foswiki::Contrib::DBIStoreContrib::reset($Foswiki::Plugins::SESSION);
     }
     elsif ( Foswiki::Func::getRequestObject->param('dbistore_update') ) {
         my ( $text, $topic, $web, $included, $meta ) = @_;
         Foswiki::Func::getRequestObject->delete('dbistore_update');
-        Foswiki::Func::writeDebug(
-            'DBIStorePlugin: Update ' . $meta->getPath() )
-          if TRACE;
+        trace( 'DBIStorePlugin: Update ' . $meta->getPath() )
+          if $TRACE{plugin};
         Foswiki::Contrib::DBIStoreContrib::start();
         Foswiki::Contrib::DBIStoreContrib::remove($meta);
         Foswiki::Contrib::DBIStoreContrib::insert($meta);
@@ -85,9 +83,8 @@ sub afterSaveHandler {
 
     # $text, $topic, $web, $error, $meta
     my $meta = $_[4];
-    Foswiki::Func::writeDebug(
-        "DBIStorePlugin::afterSaveHandler " . $meta->getPath() )
-      if TRACE;
+    trace( "DBIStorePlugin::afterSaveHandler " . $meta->getPath() )
+      if $TRACE{plugin};
     Foswiki::Contrib::DBIStoreContrib::start();
     Foswiki::Contrib::DBIStoreContrib::remove($meta);
     Foswiki::Contrib::DBIStoreContrib::insert($meta);
@@ -98,13 +95,13 @@ sub afterSaveHandler {
 sub afterRenameHandler {
     my ( $oldWeb, $oldTopic, $olda, $newWeb, $newTopic, $newa ) = @_;
 
-    Foswiki::Func::writeDebug( "DBIStorePlugin::afterRenameHandler $oldWeb."
+    trace(  "DBIStorePlugin::afterRenameHandler $oldWeb."
           . ( $oldTopic || '' ) . ':'
           . ($olda)
           . " to $newWeb."
           . ( $newTopic || '' ) . ':'
           . ( $newa || '' ) )
-      if TRACE;
+      if $TRACE{plugin};
 
     my $oldo =
       new Foswiki::Meta( $Foswiki::Plugins::SESSION, $oldWeb, $oldTopic );
@@ -128,10 +125,10 @@ sub afterRenameHandler {
 # Required for an upload
 sub afterUploadHandler {
     my ( $attrs, $meta ) = @_;
-    Foswiki::Func::writeDebug( "DBIStorePlugin::afterUploadHandler "
+    trace(  "DBIStorePlugin::afterUploadHandler "
           . $meta->getPath() . ':'
           . $attrs->{attachment} )
-      if TRACE;
+      if $TRACE{plugin};
     Foswiki::Contrib::DBIStoreContrib::start();
     Foswiki::Contrib::DBIStoreContrib::remove( $meta, $attrs->{attachment} );
 

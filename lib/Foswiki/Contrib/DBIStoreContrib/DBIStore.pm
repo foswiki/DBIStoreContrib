@@ -25,7 +25,7 @@ use Assert;
 use Encode;
 
 use Foswiki::Meta ();
-use Foswiki::Contrib::DBIStoreContrib qw(%OPTS trace);
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace);
 
 # @ISA not used directly, as it's set by the processing of the {ImplementationClasses}
 # in 1.2+, and is irrelevant to 1.1-
@@ -63,7 +63,7 @@ sub recordChange {
     return if ( defined( $args{newattachment} ) );
     return if ( defined( $args{oldattachment} ) );
 
-    trace( $args{verb} . join( ',', keys(%args) ) ) if $OPTS{trace}{updates};
+    trace( $args{verb} . join( ',', keys(%args) ) ) if $TRACE{updates};
 
     if ( $args{verb} eq 'remove' ) {
         Foswiki::Contrib::DBIStoreContrib::start();
@@ -110,11 +110,11 @@ sub DBI_query {
         }
     };
     if ($@) {
-        trace "$@\n" if $OPTS{trace}{updates};
+        trace "$@\n" if $TRACE{updates};
         die $@;
     }
     trace 'HITS: ' . scalar(@names), map { "\t$_" } @names
-      if $OPTS{trace}{updates};
+      if $TRACE{updates};
     return \@names;
 }
 

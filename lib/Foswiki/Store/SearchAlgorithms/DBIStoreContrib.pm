@@ -12,7 +12,7 @@ DBI implementation of search.
 
 use strict;
 use Assert;
-use Foswiki::Contrib::DBIStoreContrib qw(%OPTS trace);
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace);
 use Foswiki::Search::InfoCache                       ();
 use Foswiki::Query::Parser                           ();
 use Foswiki::Store::QueryAlgorithms::DBIStoreContrib ();
@@ -97,7 +97,7 @@ sub query {
 
     my $queryParser = Foswiki::Query::Parser->new();
     my $search = join( ' AND ', @ands );
-    trace("Search generated query $search") if $OPTS{trace}{search};
+    trace("Search generated query $search") if $TRACE{search};
 
     $query = $queryParser->parse($search);
 

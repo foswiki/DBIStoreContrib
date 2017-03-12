@@ -35,12 +35,10 @@ use Getopt::Long ();
 use Pod::Usage   ();
 
 use Foswiki ();
-use Foswiki::Contrib::DBIStoreContrib qw(%OPTS trace);
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace);
 use Foswiki::Meta ();
 
-$OPTS{cli} = 1;
-
-my @traceopts;
+my @traces;
 my @updates;
 my @sqls;
 my @queries;
@@ -49,28 +47,39 @@ my $web;
 my $topic;
 
 my $result = Getopt::Long::GetOptions(
-    'trace=s'  => \@traceopts,
+    'trace=s'  => \@traces,
     'reset'    => \$reset,
     'update=s' => \@updates,
     'sql=s'    => \@sqls,
     'query=s'  => \@queries,
     'topic=s'  => \$topic,
     'help'     => sub {
-        Pod::Usage::pod2usage( -exitstatus => 0, -verbose => 2 );
-        exit 0;
+        if ( $ARGV[0] eq 'trace' ) {
+            print "trace options: " . join( ' ', sort keys %TRACE ) . "\n";
+            exit 0;
+        }
+        else {
+            Pod::Usage::pod2usage(
+                -exitstatus => 0,
+                -verbose    => 2,
+            );
+        }
     }
 );
 
-foreach my $o ( split( /,/, join( ',', @traceopts ) ) ) {
+foreach my $o ( split( /,/, join( ',', @traces ) ) ) {
     if ( $o eq 'all' ) {
-        foreach my $k ( keys %{ $OPTS{trace} } ) {
-            $OPTS{trace}{$k} = 1;
+        foreach my $k ( keys %TRACE ) {
+            $TRACE{$k} = 1;
         }
     }
     else {
-        $OPTS{trace}{$o} = 1;
+        $TRACE{$o} = 1;
     }
 }
+
+print "TRACE: " . join( ' ', grep { $TRACE{$_} } sort keys %TRACE ) . "\n";
+$TRACE{cli} = 1;
 
 my $fw = new Foswiki();
 
@@ -102,7 +111,6 @@ foreach my $wn (@updates) {
 
 if ($topic) {
     ( $web, $topic ) = $fw->normalizeWebTopicName( undef, $topic );
-    print "--query over $web.$topic\n";
 }
 
 # Foswiki query
@@ -114,10 +122,10 @@ if ( scalar(@queries) ) {
           $Foswiki::Plugins::SESSION->search->parseSearch( $q,
             { type => 'query' } );
         my $sql = Foswiki::Contrib::DBIStoreContrib::HoistSQL::hoist($query);
+        print "$q -> $sql\n" if $TRACE{sql};
         $sql = "SELECT web,name FROM topic WHERE $sql";
         $sql .= " AND name='$topic'" if $topic;
         $sql .= " AND web='$web'"    if $web;
-        print "$sql\n";
         push( @sqls, $sql );
     }
 }
@@ -171,11 +179,12 @@ the wiki is not in use before resetting the database!
 
 =item B<--trace>
 
-Enable a trace option. Options are: load, search, updates and sql. --trace all
-will switch on all trace options. Trace output is printed to STDERR.
+Enable a trace option. --help trace can be used to list trace keys.
+--trace all will switch on all trace options. Trace output is printed
+to STDERR.
 
 =item B<--help>
 
 Print this information.
 
-
+=back

@@ -22,12 +22,12 @@ use Foswiki::Search::ResultSet ();
 use Foswiki::MetaCache         ();
 use Foswiki::Query::Node       ();
 use Foswiki::Func              ();
-use Foswiki::Contrib::DBIStoreContrib qw(%OPTS trace);
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace);
 
 BEGIN {
     eval 'require Foswiki::Store::Interfaces::QueryAlgorithm';
     if ($@) {
-        trace("Compatibility mode") if $OPTS{trace}{search};
+        trace("Compatibility mode") if $TRACE{search};
         undef $@;
 
         # Foswiki 1.1 or earlier
@@ -115,13 +115,13 @@ sub query {
     }
 
     trace( "Initial query: " . $query->stringify() )
-      if $OPTS{trace}{search};
+      if $TRACE{search};
 
     # Fold constants
     my $context = Foswiki::Meta->new( $session, $session->{webName} );
 
-  #    $query->simplify( tom => $context, data => $context );
-  #    trace( "Simplified to: " . $query->stringify() ) if $OPTS{trace}{search};
+    #    $query->simplify( tom => $context, data => $context );
+    #    trace( "Simplified to: " . $query->stringify() ) if $TRACE{search};
 
     my $isAdmin = $session->{users}->isAdmin( $session->{user} );
 
@@ -186,7 +186,7 @@ sub query {
     $query = undef;    # not needed any more
     trace( "Generated SQL:"
           . Foswiki::Contrib::DBIStoreContrib::HoistSQL::_format_SQL($sql) )
-      if $OPTS{trace}{search};
+      if $TRACE{search};
 
     my $topicSet = [];
     my $sth      = Foswiki::Contrib::DBIStoreContrib::query($sql);
@@ -198,7 +198,7 @@ sub query {
               . $_name
               . " from UTF8 to "
               . $Foswiki::cfg{Site}{CharSet} )
-          if $OPTS{trace}{search};
+          if $TRACE{search};
         push( @$topicSet, "$_web/$_name" );
     }
 
@@ -223,7 +223,7 @@ sub query {
 
         if ($query) {
             trace( "Evaluating " . $meta->getPath() )
-              if $OPTS{trace}{search};
+              if $TRACE{search};
 
             # this 'lazy load' will become useful when @$topics becomes
             # an infoCache
@@ -234,7 +234,7 @@ sub query {
             }
             else {
                 trace( "NO MATCH for " . $query->stringify )
-                  if $OPTS{trace}{search};
+                  if $TRACE{search};
             }
         }
         else {

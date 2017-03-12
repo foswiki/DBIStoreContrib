@@ -1,6 +1,9 @@
 #---+ Extensions
 #---++ DBIStoreContrib
 # **STRING 120**
+# Trace options - see tools/dbistore_manage.pl --help trace for a full list
+$Foswiki::cfg{Extensions}{DBIStoreContrib}{Trace} = '';
+# **STRING 120**
 # DBI DSN to use to connect to the database.
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{DSN} = 'dbi:SQLite:dbname=$Foswiki::cfg{WorkingDir}/dbcache';
 # **STRING 80**

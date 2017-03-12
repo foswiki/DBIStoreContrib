@@ -25,20 +25,18 @@ our $VERSION = '1.3';          # plugin version is also locked to this
 our $RELEASE = '9 Mar 2017';
 
 # Global options, used to control tracing etc throughout the module
-use constant TRACE_ALL => 1;
-our %OPTS = (
-    trace => {
-        load    => TRACE_ALL,
-        search  => TRACE_ALL,
-        updates => TRACE_ALL,
-        load    => TRACE_ALL
-    },
-    debug => 0
+our %TRACE = (
+    hoist   => 0,
+    load    => 0,
+    plugin  => 0,
+    search  => 0,
+    sql     => 0,
+    updates => 0
 );
 
 require Exporter;
 our @ISA       = qw(Exporter);
-our @EXPORT_OK = qw(%OPTS trace);
+our @EXPORT_OK = qw(%TRACE trace);
 
 our $SHORTDESCRIPTION = 'Use DBI to implement a store using an SQL database.';
 
@@ -92,7 +90,7 @@ sub personality {
 
 # Used throughout the module
 sub trace {
-    if ( $OPTS{cli} ) {
+    if ( $TRACE{cli} ) {
         print STDERR join( "\n", @_ ) . "\n";
     }
     else {
@@ -120,7 +118,7 @@ sub _connect {
         }
 
         trace "CONNECT $Foswiki::cfg{Extensions}{DBIStoreContrib}{DSN}..."
-          if $OPTS{trace}{load};
+          if $TRACE{load};
 
         $dbh = DBI->connect(
             $Foswiki::cfg{Extensions}{DBIStoreContrib}{DSN},
@@ -129,7 +127,7 @@ sub _connect {
             { RaiseError => 1, AutoCommit => 1 }
         ) or die $DBI::errstr;
 
-        trace "Connected" if $OPTS{trace}{load};
+        trace "Connected" if $TRACE{load};
 
         personality()->startup($dbh);
     }
@@ -137,7 +135,7 @@ sub _connect {
     # Check if the DB is initialised with a quick sniff of the tables
     # to see if all the ones we expect are there
     if ( $personality->table_exists( 'metatypes', 'topic' ) ) {
-        if ( $OPTS{trace}{load} ) {
+        if ( $TRACE{load} ) {
 
             # Check metatypes integrity
             my $tables = $dbh->selectcol_arrayref('SELECT name FROM metatypes');
@@ -148,9 +146,9 @@ sub _connect {
             }
         }
         return 1 unless ($session);
-        trace "HARD RESET" if $OPTS{trace}{load};
+        trace "HARD RESET" if $TRACE{load};
     }
-    elsif ( $OPTS{trace}{load} ) {
+    elsif ( $TRACE{load} ) {
         trace "Base tables don't exist";
         ASSERT($session);
     }
@@ -171,19 +169,19 @@ sub _connect {
     foreach my $table ( keys %tables ) {
         if ( $personality->table_exists($table) ) {
             $dbh->do( 'DROP TABLE ' . $personality->safe_id($table) );
-            trace "Dropped $table" if $OPTS{trace}{load};
+            trace "Dropped $table" if $TRACE{load};
         }
     }
 
     # No topic table, or we've had a hard reset
-    trace "Loading DB schema" if $OPTS{trace}{load};
+    trace "Loading DB schema" if $TRACE{load};
     _createTables();
 
     # We only preload after a hard reset
     if ( $session && !$Foswiki::inUnitTestMode ) {
-        trace "Schema loaded; preloading content" if $OPTS{trace}{load};
+        trace "Schema loaded; preloading content" if $TRACE{load};
         _preload($session);
-        trace "DB preloaded" if $OPTS{trace}{load};
+        trace "DB preloaded" if $TRACE{load};
     }
     return 1;
 }
@@ -224,7 +222,7 @@ sub _createTable {
     }
     my $cols = join( ',', @cols );
     my $sql = "CREATE TABLE $sn ( $cols )";
-    trace $sql if $OPTS{trace}{load};
+    trace $sql if $TRACE{load};
     $dbh->do($sql);
 
     # Add non-primary tables to the table of tables
@@ -243,7 +241,7 @@ sub _createTable {
           . $personality->safe_id("IX_${tname}_${cname}") . ' ON '
           . $personality->safe_id($tname) . '('
           . $personality->safe_id($cname) . ')';
-        trace $sql if $OPTS{trace}{load};
+        trace $sql if $TRACE{load};
         $dbh->do($sql);
     }
 }
@@ -259,7 +257,7 @@ sub _createTables {
     {
         next if $name eq 'metatypes' || $name =~ /^_/;
 
-        trace "Creating table for $name" if $OPTS{trace}{load};
+        trace "Creating table for $name" if $TRACE{load};
         _createTable( $name, $schema );
     }
     $dbh->do('COMMIT') if $personality->{requires_COMMIT};
@@ -287,7 +285,7 @@ sub _preloadWeb {
     while ( $tit->hasNext() ) {
         my $t = $tit->next();
         my $topic = Foswiki::Meta->load( $session, $w, $t );
-        trace "Preloading topic $w/$t" if $OPTS{trace}{load};
+        trace "Preloading topic $w/$t" if $TRACE{load};
         insert( $topic, undef, "$web.$t" );
     }
 
@@ -307,11 +305,9 @@ sub _convertToUTF8 {
 
 sub _truncate {
     my ( $data, $size ) = @_;
-    die "wanekr" . join( ' ', caller ) unless defined $data;
-    die "wane" . join( ' ', caller ) unless defined $data;
     return $data unless defined($size) && length($data) > $size;
     Foswiki::Func::writeWarning( 'Truncating ' . length($data) . " to $size" )
-      if $OPTS{trace}{load};
+      if $TRACE{load};
     return substr( $data, 0, $size - 3 ) . '...';
 }
 
@@ -397,7 +393,7 @@ sub _findOrCreateTable {
             $schema->{$col} ||= '_DEFAULT';
         }
     }
-    trace "Creating fly table for $type" if $OPTS{trace}{load};
+    trace "Creating fly table for $type" if $TRACE{load};
     _createTable( $type, $schema );
 
     $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type} = $schema;
@@ -428,11 +424,11 @@ sub _findOrCreateColumn {
           . $personality->safe_id($col) . ' '
           . $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{_DEFAULT}
           ->{type};
-        trace $sql if $OPTS{trace}{load};
+        trace $sql if $TRACE{load};
         $dbh->do($sql);
     }
 
-    trace "Added '$type.$col' to the schema" if $OPTS{trace}{load};
+    trace "Added '$type.$col' to the schema" if $TRACE{load};
 
     # _column will give us the default type if
     # the column name isn't matched
@@ -489,7 +485,7 @@ sub insert {
         my $tid = $dbh->selectrow_array('SELECT MAX(tid) FROM topic')
           || 0;
         $tid++;
-        trace "\tInsert $tid" if $OPTS{trace}{load};
+        trace "\tInsert $tid" if $TRACE{load};
         my $text      = _convertToUTF8( $mo->text() );
         my $esf       = _convertToUTF8( $mo->getEmbeddedStoreForm() );
         my $topicName = _convertToUTF8( $mo->topic() );
@@ -540,7 +536,7 @@ sub insert {
                     } @kns
                   )
                   . ']'
-                  if $OPTS{trace}{load};
+                  if $TRACE{load};
 
                 $dbh->do(
                     $sql,
@@ -618,7 +614,7 @@ sub remove {
         else {
 
             foreach my $tid (@$tids) {
-                trace "\tRemove $tid" if $OPTS{trace}{load};
+                trace "\tRemove $tid" if $TRACE{load};
                 my $tables =
                   $dbh->selectcol_arrayref('SELECT name FROM metatypes');
                 foreach my $table ( 'topic', @$tables ) {
@@ -652,7 +648,7 @@ sub rename {
         my $newWebName = _convertToUTF8( $mn->web() );
 
         trace "\tRename web from $oldWebName to $newWebName"
-          if $OPTS{trace}{load};
+          if $TRACE{load};
         $dbh->do(
             "UPDATE topic SET web = '$newWebName' WHERE web = '$oldWebName'");
     }

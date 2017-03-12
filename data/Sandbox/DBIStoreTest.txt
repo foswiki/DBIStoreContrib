@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="SimianApe" comment="" date="1489311617" format="1.1" reprev="4" version="4"}%
+%META:TOPICINFO{author="ProjectContributor" comment="" date="1489347256" format="1.1"  version="5"}%
 <!--
 <verbatim>
 Plain search options
@@ -12,16 +12,22 @@ Number of topics expected
    * Set QGT = %IF{"0%SEARCH{%QOP% "%cond%"}%>%res%" then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt (got $percentSEARCH{$percentQOP$percent $quot%cond%$quot}$percent expected %res%)"}% | %cond%
 
    * Set ITE = then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt "
+%STARTSECTION{"plugin_enabled"}%
+   * To reset the cache, click on %SCRIPTURL{"view"}%/%WEB%/%TOPIC%?dbistore_reset=1 (slow)
+   * To reload this topic, click on %SCRIPTURL{"view"}%/%WEB%/%TOPIC%?dbistore_update=1
+   * To reload the companion form topic, click on %SCRIPTURL{"view"}%/%WEB%/DBIStoreTestForm?dbistore_update=1
+The command-line program =tools/dbistore_manage.pl= can also be used to manage the DB.
+%ENDSECTION{"plugin_enabled"}%
+%STARTSECTION{"plugin_disabled"}%
+The DBIStorePlugin is disabled. The command-line program =tools/dbistore_manage.pl= can be used to manage the DB.
+%ENDSECTION{"plugin_disabled"}%
 </verbatim>
 -->
 This topic is used for testing the DBIStoreContrib.
 Note that this topic, and the DBIStoreTestForm topic,
 have to be present in the database cache for the tests to work.
 
-If the plugin is enabled:
-   * To reset the cache, click on %SCRIPTURL{"view"}%/%WEB%/%TOPIC%?dbistore_init=1 (slow)
-   * To reload this topic, click on %SCRIPTURL{"view"}%/%WEB%/%TOPIC%?dbistore_update=1
-   * To reload the companion form topic, click on %SCRIPTURL{"view"}%/%WEB%/DBIStoreTestForm?dbistore_update=1
+%IF{"context DBIStorePluginEnabled" then="$percntINCLUDE{\"%TOPIC%\" section=\"plugin_enabled\"}$percent" else="$percntINCLUDE{\"%TOPIC%\" section=\"plugin_disabled\"}$percent"}%
 
 <!-- TA number of hist TB search query TC -->
 | *Test* | *Query Expression* | *Result* |
