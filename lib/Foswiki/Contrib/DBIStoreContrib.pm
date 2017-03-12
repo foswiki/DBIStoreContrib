@@ -25,13 +25,13 @@ our $VERSION = '1.3';          # plugin version is also locked to this
 our $RELEASE = '9 Mar 2017';
 
 # Global options, used to control tracing etc throughout the module
-use constant DEBUG => 1;
+use constant TRACE_ALL => 1;
 our %OPTS = (
     trace => {
-        load    => DEBUG,
-        search  => DEBUG,
-        updates => DEBUG,
-        load    => DEBUG
+        load    => TRACE_ALL,
+        search  => TRACE_ALL,
+        updates => TRACE_ALL,
+        load    => TRACE_ALL
     },
     debug => 0
 );

@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="SimianApe" comment="save topic" date="1489067039" format="1.1" version="2"}%
+%META:TOPICINFO{author="SimianApe" comment="" date="1489311617" format="1.1" reprev="4" version="4"}%
 <!--
 <verbatim>
 Plain search options
@@ -8,7 +8,7 @@ Query search options
 Number of topics expected
    * Set NT = %SEARCH{%SOP% "P"}%
 
-   * Set QEQ = %IF{"%res%=0%SEARCH{%QOP% "%cond%"}%" then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt  (got $percentSEARCH{$percentQOP$percent $quot%cond%$quot}$percent expected %res%)"}% | %cond%
+   * Set QEQ = %cond% | %IF{"%res%=0%SEARCH{%QOP% "%cond%"}%" then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt  (got $percentSEARCH{$percentQOP$percent $quot%cond%$quot}$percent expected %res%)"}%
    * Set QGT = %IF{"0%SEARCH{%QOP% "%cond%"}%>%res%" then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt (got $percentSEARCH{$percentQOP$percent $quot%cond%$quot}$percent expected %res%)"}% | %cond%
 
    * Set ITE = then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt "
@@ -18,26 +18,26 @@ This topic is used for testing the DBIStoreContrib.
 Note that this topic, and the DBIStoreTestForm topic,
 have to be present in the database cache for the tests to work.
 
-To reset the cache, click on %SCRIPTURL{"view"}%/%WEB%/%TOPIC%?dbistore_init=1 (slow)
-
-To reload this topic, click on %SCRIPTURL{"view"}%/%WEB%/%TOPIC%?dbistore_update=1
-
-To reload the companion form topic, click on %SCRIPTURL{"view"}%/%WEB%/DBIStoreTestForm?dbistore_update=1
+If the plugin is enabled:
+   * To reset the cache, click on %SCRIPTURL{"view"}%/%WEB%/%TOPIC%?dbistore_init=1 (slow)
+   * To reload this topic, click on %SCRIPTURL{"view"}%/%WEB%/%TOPIC%?dbistore_update=1
+   * To reload the companion form topic, click on %SCRIPTURL{"view"}%/%WEB%/DBIStoreTestForm?dbistore_update=1
 
 <!-- TA number of hist TB search query TC -->
-| Non-query search | %IF{"%NT%>0" then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt "}% |
-| Regex search | %IF{" 1 =0%SEARCH{ "fruitbat" type="regex" %SOP%}%" %ITE% }% ||
-| Regex search | %IF{" 0 =0%SEARCH{ "fruit[^b]at" type="regex" %SOP%}%" %ITE% }% ||
+| *Test* | *Query Expression* | *Result* |
+| Non-query search | %NT%>0 | %IF{"%NT%>0" then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt "}% |
+| Regex search | "fruitbat" | %IF{" 1 =0%SEARCH{ "fruitbat" type="regex" %SOP%}%" %ITE% }% ||
+| Regex search | "fruit[^b]at" | %IF{" 0 =0%SEARCH{ "fruit[^b]at" type="regex" %SOP%}%" %ITE% }% ||
 | False | %QEQ{cond="0" res="0"}% |
 | False | %QEQ{cond="00" res="0"}% |
 | False | %QEQ{cond="'0'" res="0"}% |
 | True | %QEQ{cond="1" res="%NT%"}% |
 | True | %QEQ{cond="01" res="%NT%"}% |
 | True | %QEQ{cond="'1'" res="%NT%"}% |
-| &gt; literal | %QEQ{cond="3>20" res="0"}% |
-| &gt; literal | %QEQ{cond="30>2" res="%NT%"}% |
-| &lt; literal | %QEQ{cond="3<20" res="%NT%"}% |
-| &lt; literal | %QEQ{cond="'3'<'20'" res="%NT%"}% |
+| > | %QEQ{cond="3>20" res="0"}% |
+| > literal | %QEQ{cond="30>2" res="%NT%"}% |
+| < | %QEQ{cond="3<20" res="%NT%"}% |
+| string < | %QEQ{cond="'3'<'20'" res="%NT%"}% |
 | Simple regex | %QEQ{res="2" cond="'AA'=~'A'" }% |
 | Numeric Field | %QEQ{cond="number" res="%NT%"}% |
 | Boolean field | %QEQ{cond="boolean" res="1"}% |
@@ -59,8 +59,8 @@ To reload the companion form topic, click on %SCRIPTURL{"view"}%/%WEB%/DBIStoreT
 | name=undefined | %QEQ{ res="0" cond="name=undefined" }% |
 | undefined=name | %QEQ{ res="0" cond="undefined=name" }% |
 | undefined=undefined | %QEQ{ res="2" cond="undefined=undefined" }% |
-| Length(num) | %QEQ{ res="2" cond="length(99)" }% |
-| Length(str) | %QEQ{ res="2" cond="length('99')&gt;0" }% |
+| Length(num) | %QEQ{ res="2" cond="length(99)=2" }% |
+| Length(string) | %QEQ{ res="2" cond="length('999')=3" }% |
 | Deep where | %QEQ{ res="1" cond="fields[value=fields[name='number'].value].name" }% |
 | No such field | %QEQ{ res="0" cond="fields['x'].name='x'" }% |
 | Numeric index | %QEQ{ res="2" cond="fields[0].name='number'" }% |

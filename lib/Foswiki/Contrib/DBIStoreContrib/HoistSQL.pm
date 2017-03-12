@@ -90,44 +90,29 @@ END {
 
 # Frequently used SQL constructs
 
-# Generate SQL SELECT statement.
-# _SELECT(__LINE__, pick, FROM =>, WHERE => etc )
-# Keys are ignored if their value is undef
+# Generate SQL SELECT statement. %opts are:
+#     comment: comment, usually caller's __LINE__, only included if tracing
+#     options permit it
+#     select: what to select e.g. *
+#     FROM: where to select from
+#     WHERE: condition
 sub _SELECT {
     my (%opts) = @_;
     my $info = '';
-    if ( $OPTS{trace}{sql} && defined $opts{monitor} ) {
-        $info = _personality()->make_comment( $opts{monitor} );
+    if ( $OPTS{trace}{sql} && defined $opts{comment} ) {
+        $info = _personality()->make_comment( $opts{comment} );
     }
     my $pick = $opts{select};
     if ( ref($pick) ) {
         $pick = join( ',', @$pick );
     }
     my $sql = "SELECT$info $pick";
-    while ( my ( $opt, $val ) = each %opts ) {
-        next unless ( $opt && $opt =~ /^[A-Z]/ && defined $val );
-        print STDERR "UNEXPECTED $opt\n" unless ( $opt =~ /^(FROM|WHERE)$/ );
-
- #    while ( my ( $opt, $val ) = each %opts ) {
- #        next unless ( $opt && $opt =~ /^[A-Z]/ && defined $val );
- #        $val = [$val] unless ( ref($val) );
- #
- #        # Bracket subqueries for FROM etc
- #        $sql .=
- #          " $opt " . join( ',', map { $_ =~ /^SELECT/ ? "($_)" : $_ } @$val );
-    }
-    if ( defined $opts{FROM} ) {
-        my $val = $opts{FROM};
+    foreach my $clause (qw(FROM WHERE)) {
+        next unless defined $opts{$clause};
+        my $val = $opts{$clause};
         $val = [$val] unless ( ref($val) );
-        $sql .=
-          " FROM " . join( ',', map { $_ =~ /^SELECT/ ? "($_)" : $_ } @$val );
-    }
-
-    if ( defined $opts{WHERE} ) {
-        my $val = $opts{WHERE};
-        $val = [$val] unless ( ref($val) );
-        $sql .=
-          " WHERE " . join( ',', map { $_ =~ /^SELECT/ ? "($_)" : $_ } @$val );
+        $sql .= " $clause "
+          . join( ',', map { $_ =~ /^SELECT/ ? "($_)" : $_ } @$val );
     }
     return $sql;
 }
@@ -140,7 +125,7 @@ sub _AS {
     while ( my ( $what, $alias ) = each %args ) {
         if ( defined $alias ) {
             $what = "($what)"
-              if $what !~ /^[\w`]+$/
+              if $what !~ /^(\w|`)+$/
               && $what !~ /^(["']).*\1$/
               && $what !~ /^\([^()]*\)$/;
             push( @terms, "$what AS $alias" );
@@ -489,7 +474,7 @@ sub _hoist {
             select  => '*',
             FROM    => $lhs{sql},
             WHERE   => $where,
-            monitor => __LINE__
+            comment => __LINE__
         );
         $result{is_select}  = 1;
         $result{has_where}  = length($where);
@@ -524,7 +509,7 @@ sub _hoist {
         $result{sql} = _SELECT(
             select  => \@selects,
             FROM    => _AS( $lhs{sql} => $alias ),
-            monitor => __LINE__
+            comment => __LINE__
         );
         $result{is_select}  = 1;
         $result{type}       = STRING;
@@ -581,7 +566,7 @@ sub _hoist {
             select  => 'tid',
             FROM    => _AS( 'topic' => $topic_alias ),
             WHERE   => $lhs_where,
-            monitor => __LINE__
+            comment => __LINE__
           ) . ")";
 
         push( @selects, _AS( $rhs{sql} => $sexpr_alias ) );
@@ -591,7 +576,7 @@ sub _hoist {
             select  => "$sexpr_alias.*",
             FROM    => \@selects,
             WHERE   => $tid_constraint,
-            monitor => __LINE__
+            comment => __LINE__
         );
 
         $result{is_select}  = 1;
@@ -635,14 +620,14 @@ sub _hoist {
                         select  => _AS( 'tid', $lhs_alias ),
                         FROM    => 'topic',
                         WHERE   => 'EXISTS(' . $lhs{sql} . ')',
-                        monitor => __LINE__
+                        comment => __LINE__
                     );
                 }
                 else {
                     $lhs_sql = _SELECT(
                         select  => 'tid',
                         FROM    => _AS( $lhs{sql}, $lhs_alias ),
-                        monitor => __LINE__
+                        comment => __LINE__
                     );
                 }
 
@@ -653,14 +638,14 @@ sub _hoist {
                         select  => _AS( 'tid', $rhs_alias ),
                         FROM    => 'topic',
                         WHERE   => 'EXISTS(' . $rhs{sql} . ')',
-                        monitor => __LINE__
+                        comment => __LINE__
                     );
                 }
                 else {
                     $rhs_sql = _SELECT(
                         select  => 'tid',
                         FROM    => _AS( $rhs{sql}, $rhs_alias ),
-                        monitor => __LINE__
+                        comment => __LINE__
                     );
                 }
 
@@ -670,7 +655,7 @@ sub _hoist {
                     select =>
                       [ 'DISTINCT ' . _AS( $TRUE => $result{sel} ), 'tid' ],
                     FROM    => _AS( $union_sql, $union_alias ),
-                    monitor => __LINE__
+                    comment => __LINE__
                 );
                 $result{is_select}  = 1;
                 $result{type}       = $TRUE_TYPE;
@@ -722,7 +707,7 @@ sub _hoist {
                         $rhs{sql} => $rhs_alias
                       ),
                     WHERE   => $where,
-                    monitor => __LINE__
+                    comment => __LINE__
                 );
                 $result{is_select} = 1;
                 $result{has_where} = length($where);
@@ -826,7 +811,7 @@ sub _genSingleTableSELECT {
         select  => [ _AS( $expr => $result->{sel} ), $ret_tid ],
         FROM    => \@froms,
         WHERE   => $where,
-        monitor => $monitor
+        comment => $monitor
     );
     $result->{is_select} = 1;
     $result->{has_where} = length($where);
@@ -906,7 +891,7 @@ sub _rewrite {
                     else {
                         $node = _rewrite(
                             $parser->parse(
-                                "META:FORM[name='$node->{params}[0]']"),
+                                "META:FIELD[name='$node->{params}[0]'].value"),
                             $context
                         );
                         $rewrote = __LINE__;

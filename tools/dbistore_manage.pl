@@ -41,15 +41,20 @@ use Foswiki::Meta ();
 $OPTS{cli} = 1;
 
 my @traceopts;
-my @update;
-my @sql;
+my @updates;
+my @sqls;
+my @queries;
 my $reset;
+my $web;
+my $topic;
 
 my $result = Getopt::Long::GetOptions(
     'trace=s'  => \@traceopts,
     'reset'    => \$reset,
-    'update=s' => \@update,
-    'sql=s'    => \@sql,
+    'update=s' => \@updates,
+    'sql=s'    => \@sqls,
+    'query=s'  => \@queries,
+    'topic=s'  => \$topic,
     'help'     => sub {
         Pod::Usage::pod2usage( -exitstatus => 0, -verbose => 2 );
         exit 0;
@@ -69,8 +74,14 @@ foreach my $o ( split( /,/, join( ',', @traceopts ) ) ) {
 
 my $fw = new Foswiki();
 
+# Full reset
 if ($reset) {
-    if ( scalar(@update) > 0 || scalar(@sql) > 0 || scalar(@ARGV) > 0 ) {
+    if (   $topic
+        || scalar(@updates) > 0
+        || scalar(@sqls) > 0
+        || scalar(@queries) > 0
+        || scalar(@ARGV) > 0 )
+    {
         Pod::Usage::pod2usage( -exitstatus => 0, -verbose => 2 );
         die "--reset must be only parameter";
     }
@@ -78,23 +89,44 @@ if ($reset) {
     exit 0;
 }
 
-foreach my $wn (@update) {
-    my ( $web, $topic ) = $fw->normalizeWebTopicName($wn);
-    my $meta = Foswiki::Meta->new( $fw, $web, $topic );
-    trace "Update $web.$topic";
+# Topic to be updated
+foreach my $wn (@updates) {
+    my ( $w, $t ) = $fw->normalizeWebTopicName($wn);
+    my $meta = Foswiki::Meta->new( $fw, $w, $t );
+    trace "Update $w.$t";
     Foswiki::Contrib::DBIStoreContrib::start();
     Foswiki::Contrib::DBIStoreContrib::remove($meta);
     Foswiki::Contrib::DBIStoreContrib::insert($meta);
     Foswiki::Contrib::DBIStoreContrib::commit();
 }
 
-foreach my $q (@sql) {
+if ($topic) {
+    ( $web, $topic ) = $fw->normalizeWebTopicName( undef, $topic );
+    print "--query over $web.$topic\n";
+}
+
+# Foswiki query
+if ( scalar(@queries) ) {
+    require Foswiki::Contrib::DBIStoreContrib::HoistSQL;
+    my $meta = Foswiki::Meta->new( $fw, $web, $topic );
+    foreach my $q (@queries) {
+        my $query =
+          $Foswiki::Plugins::SESSION->search->parseSearch( $q,
+            { type => 'query' } );
+        my $sql = Foswiki::Contrib::DBIStoreContrib::HoistSQL::hoist($query);
+        $sql = "SELECT web,name FROM topic WHERE $sql";
+        $sql .= " AND name='$topic'" if $topic;
+        $sql .= " AND web='$web'"    if $web;
+        print "$sql\n";
+        push( @sqls, $sql );
+    }
+}
+
+# SQL query
+foreach my $q (@sqls) {
     my $sth = Foswiki::Contrib::DBIStoreContrib::query($q);
     $sth->dump_results();
 }
-
-my $meta = Foswiki::Meta->new( $fw, 'Sandbox', 'DBIStoreTest' );
-print $meta->expandMacros( $meta->text() );
 
 1;
 __END__
@@ -119,6 +151,17 @@ You can give as many --update options as you want.
 =item B<--sql> SQL
 
 Execute the given SQL query over the DB, and report the result.
+You can give as many --sql options as you want.
+
+=item B<--topic> topic
+
+Set the topic for Foswiki queries (wildcards are *not* supported. If not
+given, queries are executed over the entire database).
+
+=item B<--query> TML query
+
+Execute the given TML query, and report the result.
+You can give as many --query options as you want.
 
 =item B<--reset>
 
