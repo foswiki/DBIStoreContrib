@@ -3,6 +3,7 @@
 | string | text | 32 | | A String | |
 | boolean | radio | 1 | Boolean | A Checkbox |
 | Other | text | 32 | | Another topic |
+| Mother | text | 32 | | a field not in the form topic |
 
 This topic defines a form used for testing the DBIStoreContrib.
 Note that this topic, and the DBIStoreTest topic,

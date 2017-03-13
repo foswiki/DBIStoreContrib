@@ -19,7 +19,8 @@ our $SHORTDESCRIPTION =
 sub initPlugin {
 
     foreach my $k (
-        split( /\s+/, $Foswiki::cfg{Extensions}{DBIStoreContrib}{Trace} ) )
+        split( /\s+/, $Foswiki::cfg{Extensions}{DBIStoreContrib}{Trace} || '' )
+      )
     {
         $TRACE{$k} = 1;
     }

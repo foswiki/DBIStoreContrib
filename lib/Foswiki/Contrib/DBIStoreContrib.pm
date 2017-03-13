@@ -154,8 +154,6 @@ sub _connect {
             { RaiseError => 1, AutoCommit => 1 }
         ) or die $DBI::errstr;
 
-        trace('Connected') if $TRACE{load};
-
         personality()->startup($dbh);
     }
 
@@ -195,8 +193,9 @@ sub _connect {
 
     foreach my $table ( keys %tables ) {
         if ( $personality->table_exists($table) ) {
-            $dbh->do( 'DROP TABLE ' . $personality->safe_id($table) );
-            trace( 'Dropped ', $table ) if $TRACE{load};
+            my $sql = 'DROP TABLE ' . $personality->safe_id($table);
+            trace($sql) if $TRACE{sql};
+            $dbh->do($sql);
         }
     }
 
@@ -249,12 +248,15 @@ sub _createTable {
     }
     my $cols = join( ',', @cols );
     my $sql = "CREATE TABLE $sn ( $cols )";
-    trace($sql) if $TRACE{load};
+    trace($sql) if $TRACE{sql};
     $dbh->do($sql);
 
     # Add non-primary tables to the table of tables
-    $dbh->do("INSERT INTO metatypes (name) VALUES ( '$tname' )")
-      unless $tname eq 'topic' || $tname eq 'metatypes';
+    unless ( $tname eq 'topic' || $tname eq 'metatypes' ) {
+        my $sql = "INSERT INTO metatypes (name) VALUES ( '$tname' )";
+        trace($sql) if $TRACE{sql};
+        $dbh->do($sql);
+    }
 
     # Create indexes
     while ( my ( $cname, $cschema ) = each %$tschema ) {
@@ -268,7 +270,7 @@ sub _createTable {
           . $personality->safe_id("IX_${tname}_${cname}") . ' ON '
           . $personality->safe_id($tname) . '('
           . $personality->safe_id($cname) . ')';
-        trace($sql) if $TRACE{load};
+        trace($sql) if $TRACE{sql};
         $dbh->do($sql);
     }
 }
@@ -287,7 +289,7 @@ sub _createTables {
         trace( 'Creating table for ', $name ) if $TRACE{load};
         _createTable( $name, $schema );
     }
-    $dbh->do('COMMIT') if $personality->{requires_COMMIT};
+    commit();
 }
 
 # Load all existing webs and topics into the DB (expensive)
@@ -299,7 +301,7 @@ sub _preload {
         my $web = $wit->next();
         _preloadWeb( $web, $session );
     }
-    $dbh->do('COMMIT') if $personality->{requires_COMMIT};
+    commit();
 }
 
 # Preload a single web - PRIVATE
@@ -342,8 +344,7 @@ sub utf2site {
 sub _truncate {
     my ( $data, $size ) = @_;
     return $data unless defined($size) && length($data) > $size;
-    Foswiki::Func::writeWarning( 'Truncating ' . length($data) . " to $size" )
-      if $TRACE{load};
+    Foswiki::Func::writeWarning( 'Truncating ' . length($data) . " to $size" );
     return substr( $data, 0, $size - 3 ) . '...';
 }
 
@@ -376,8 +377,11 @@ sub start {
 
 sub commit {
 
-    # Commit a transaction
-    $dbh->do('COMMIT') if $personality->{requires_COMMIT};
+    # Commit a transaction if required
+    if ( $personality->{requires_COMMIT} ) {
+        trace('COMMIT') if $TRACE{sql};
+        $dbh->do('COMMIT');
+    }
 }
 
 # PACKAGE PRIVATE support forced disconnection when a store shim is decoupled.
@@ -460,7 +464,7 @@ sub _findOrCreateColumn {
           . $personality->safe_id($col) . ' '
           . $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{_DEFAULT}
           ->{type};
-        trace($sql) if $TRACE{load};
+        trace($sql) if $TRACE{sql};
         $dbh->do($sql);
     }
 
@@ -500,13 +504,14 @@ sub insert {
         if ( $personality->column_exists( 'FILEATTACHMENT', 'serialised' ) ) {
 
             # Pull in the attachment data
-            my $tid =
-              $dbh->selectrow_array( 'SELECT tid FROM topic '
-                  . "WHERE web='"
-                  . site2utf( $mo->web() )
-                  . " AND name='"
-                  . site2utf( $mo->topic() )
-                  . "'" );
+            my $sql =
+                'SELECT tid FROM topic '
+              . "WHERE web='"
+              . site2utf( $mo->web() )
+              . " AND name='"
+              . site2utf( $mo->topic() ) . "'";
+            trace($sql) if $TRACE{sql};
+            my $tid = $dbh->selectrow_array($sql);
             ASSERT($tid) if DEBUG;
 
        # TODO:
@@ -526,9 +531,14 @@ sub insert {
         my $esf       = site2utf( $mo->getEmbeddedStoreForm() );
         my $webName   = site2utf( $mo->web() );
         my $topicName = site2utf( $mo->topic() );
-        $dbh->do(
-            'INSERT INTO topic (tid,web,name,text,raw) VALUES (?,?,?,?,?)',
-            {}, $tid, $webName, $topicName, $text, $esf );
+        my $sql =
+          'INSERT INTO topic (tid,web,name,text,raw) VALUES (?,?,?,?,?)';
+        my @sqlp = ( $tid, $webName, $topicName, $text, $esf );
+        trace( $sql, '[',
+            map { ( ',', defined $_ ? _truncate( $_, 80 ) : 'NULL' ) } @sqlp,
+            ']' )
+          if $TRACE{sql};
+        $dbh->do( $sql, {}, @sqlp );
 
         foreach my $type ( keys %$mo ) {
 
@@ -568,14 +578,14 @@ sub insert {
                     $sql, ' [tid',
                     map {
                         (
-                            ',#',
+                            ',',
                             defined $item->{$_}
                             ? _truncate( $item->{$_}, 80 )
                             : 'NULL'
                           )
                       } @kns,
                     ']'
-                ) if $TRACE{load};
+                ) if $TRACE{sql};
 
                 $dbh->do(
                     $sql,
@@ -619,6 +629,7 @@ sub remove {
 
         my $sql = "SELECT tid FROM topic WHERE topic.web='" . $webName . "'";
         $sql .= " AND topic.name='" . $topicName . "'";
+        trace($sql) if $TRACE{sql};
         my $tids = $dbh->selectcol_arrayref($sql);
         return unless scalar(@$tids);
 
@@ -630,23 +641,25 @@ sub remove {
             # entry table here.
             # That is done at a much higher level in Foswiki::Meta when the
             # referring topic has it's meta-data rewritten.
-            # Here we simply clear down the raw data stored for the attachment.
-            if ( $personality->column_exists( 'FILEATTACHMENT', 'serialised' ) )
-            {
-                my $tid =
-                  $dbh->selectrow_array( 'SELECT tid FROM topic '
-                      . "WHERE web='"
-                      . $webName
-                      . "' AND name='"
-                      . $topicName
-                      . "'" );
-                ASSERT($tid) if DEBUG;
 
-      # TODO:
-      #            $dbh->do( 'UPDATE ' . $personality->safe_id('FILEATTACHMENT')
-      #                      . " SET serialised=''"
-      #                      . " WHERE tid='$tid' AND name='$attachment'" );
-            }
+     #TODO: Here we simply clear down the raw data stored for the attachment.
+     #TODO: if ( $personality->column_exists( 'FILEATTACHMENT', 'serialised' ) )
+     #TODO: {
+     #TODO:     $sql = 'SELECT tid FROM topic '
+     #TODO:           . "WHERE web='"
+     #TODO:           . $webName
+     #TODO:           . "' AND name='"
+     #TODO:           . $topicName
+     #TODO:           . "'";
+     #TODO:     trace( $sql ) if $TRACE{sql};
+     #TODO:     my $tid = $dbh->selectrow_array( $sql );
+     #TODO:     ASSERT($tid) if DEBUG;
+
+        #TODO:
+        #TODO:     $dbh->do( 'UPDATE ' . $personality->safe_id('FILEATTACHMENT')
+        #TODO:                . " SET serialised=''"
+        #TODO:               . " WHERE tid='$tid' AND name='$attachment'" );
+        #TODO: }
         }
         else {
 
@@ -656,8 +669,10 @@ sub remove {
                   $dbh->selectcol_arrayref('SELECT name FROM metatypes');
                 foreach my $table ( 'topic', @$tables ) {
                     if ( $personality->table_exists($table) ) {
-                        my $tn = $personality->safe_id($table);
-                        $dbh->do("DELETE FROM $tn WHERE tid='$tid'");
+                        my $tn  = $personality->safe_id($table);
+                        my $sql = "DELETE FROM $tn WHERE tid='$tid'";
+                        trace($sql) if $TRACE{sql};
+                        $dbh->do($sql);
                     }
                 }
             }
@@ -684,10 +699,10 @@ sub rename {
         my $oldWebName = site2utf( $mo->web() );
         my $newWebName = site2utf( $mn->web() );
 
-        trace( "\tRename web from ", $oldWebName, " to ", $newWebName )
-          if $TRACE{load};
-        $dbh->do(
-            "UPDATE topic SET web = '$newWebName' WHERE web = '$oldWebName'");
+        my $sql =
+          "UPDATE topic SET web = '$newWebName' WHERE web = '$oldWebName'";
+        trace($sql) if $TRACE{sql};
+        $dbh->do($sql);
     }
 }
 

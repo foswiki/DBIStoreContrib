@@ -100,8 +100,9 @@ if ($reset) {
 
 # Topic to be updated
 foreach my $wn (@updates) {
-    my ( $w, $t ) = $fw->normalizeWebTopicName($wn);
+    my ( $w, $t ) = $fw->normalizeWebTopicName( undef, $wn );
     my $meta = Foswiki::Meta->new( $fw, $w, $t );
+    $meta->load();
     trace "Update $w.$t";
     Foswiki::Contrib::DBIStoreContrib::start();
     Foswiki::Contrib::DBIStoreContrib::remove($meta);
@@ -110,6 +111,8 @@ foreach my $wn (@updates) {
 }
 
 if ($topic) {
+
+    # Topic to base queries on
     ( $web, $topic ) = $fw->normalizeWebTopicName( undef, $topic );
 }
 
@@ -122,7 +125,6 @@ if ( scalar(@queries) ) {
           $Foswiki::Plugins::SESSION->search->parseSearch( $q,
             { type => 'query' } );
         my $sql = Foswiki::Contrib::DBIStoreContrib::HoistSQL::hoist($query);
-        print "$q -> $sql\n" if $TRACE{sql};
         $sql = "SELECT web,name FROM topic WHERE $sql";
         $sql .= " AND name='$topic'" if $topic;
         $sql .= " AND web='$web'"    if $web;

@@ -36,14 +36,14 @@ have to be present in the database cache for the tests to work.
 | Regex search | "fruit[^b]at" | %IF{" 0 =0%SEARCH{ "fruit[^b]at" type="regex" %SOP%}%" %ITE% }% ||
 | False | %QEQ{cond="0" res="0"}% |
 | False | %QEQ{cond="00" res="0"}% |
-| False | %QEQ{cond="'0'" res="0"}% |
+| False | %QEQ{cond="''" res="0"}% |
 | True | %QEQ{cond="1" res="%NT%"}% |
 | True | %QEQ{cond="01" res="%NT%"}% |
 | True | %QEQ{cond="'1'" res="%NT%"}% |
 | > | %QEQ{cond="3>20" res="0"}% |
 | > literal | %QEQ{cond="30>2" res="%NT%"}% |
 | < | %QEQ{cond="3<20" res="%NT%"}% |
-| string < | %QEQ{cond="is_number('3')<'20'" res="%NT%"}% |
+| Lexical < | %QEQ{cond="'3'<'20'" res="0"}% |
 | Simple regex | %QEQ{res="2" cond="'AA'=~'A'" }% |
 | Numeric Field | %QEQ{cond="number" res="%NT%"}% |
 | Boolean field | %QEQ{cond="boolean" res="1"}% |
@@ -67,12 +67,15 @@ have to be present in the database cache for the tests to work.
 | undefined=undefined | %QEQ{ res="2" cond="undefined=undefined" }% |
 | Length(num) | %QEQ{ res="2" cond="length(99)=2" }% |
 | Length(string) | %QEQ{ res="2" cond="length('999')=3" }% |
-| Deep where | %QEQ{ res="1" cond="fields[value=fields[name='number'].value].name" }% |
+| Deep where | %QEQ{ res="1" cond="fields[value=fields[name='Mother'].value].name='Mother'" }% |
 | No such field | %QEQ{ res="0" cond="fields['x'].name='x'" }% |
-| Numeric index | %QEQ{ res="2" cond="fields[0].name='number'" }% |
-| Numeric index | %QEQ{ res="1" cond="fields[4].name='Huge'" }% |
 | Table Ref | %QEQ{ res="2" cond="'DBIStoreTest'/META:FORM.name='DBIStoreTestForm'" }% |
 | Complex ref | %QEQ{ res="2" cond="(fields[name='Other'].value)/META:FORM.name='DBIStoreTestForm'" }% |
+
+| *Outreach - these may fail* |
+| *Test* | *Query Expression* | *Result* |
+| Numeric index | %QEQ{ res="2" cond="fields[0].name='number'" }% |
+| Numeric index | %QEQ{ res="1" cond="fields[4].name='Huge'" }% |
 | Table=Table | %QEQ{res="0" cond="fields=attachments"}% |
 <!--
 Can't get escapes to work with a simple search, so not much hope for the
@@ -86,4 +89,5 @@ contrib!
 %META:FIELD{name="string" title="string" value="String"}%
 %META:FIELD{name="boolean" title="boolean" value="Boolean"}%
 %META:FIELD{name="Other" title="Other" value="DBIStoreTestForm"}%
+%META:FIELD{name="Mother" title="Other" value="99"}%
 %META:PREFERENCE{name="Red" value="0"}%
