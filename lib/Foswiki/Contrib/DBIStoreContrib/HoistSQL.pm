@@ -15,7 +15,8 @@ package Foswiki::Contrib::DBIStoreContrib::HoistSQL;
 use strict;
 use Assert;
 
-use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace);
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace
+  NAME NUMBER STRING UNKNOWN BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 use Foswiki::Infix::Node                             ();
 use Foswiki::Query::Node                             ();
 use Foswiki::Query::Parser                           ();
@@ -30,19 +31,6 @@ our $table_name_RE = qr/^\w+$/;
 # Pseudo-constants, from the Personality
 our $TRUE;
 our $TRUE_TYPE;
-
-# Copy constants for shorthand
-use constant {
-    NAME        => Foswiki::Contrib::DBIStoreContrib::NAME,
-    NUMBER      => Foswiki::Contrib::DBIStoreContrib::NUMBER,
-    STRING      => Foswiki::Contrib::DBIStoreContrib::STRING,
-    UNKNOWN     => Foswiki::Contrib::DBIStoreContrib::UNKNOWN,
-    BOOLEAN     => Foswiki::Contrib::DBIStoreContrib::BOOLEAN,
-    SELECTOR    => Foswiki::Contrib::DBIStoreContrib::SELECTOR,
-    VALUE       => Foswiki::Contrib::DBIStoreContrib::VALUE,
-    TABLE       => Foswiki::Contrib::DBIStoreContrib::TABLE,
-    PSEUDO_BOOL => Foswiki::Contrib::DBIStoreContrib::PSEUDO_BOOL,
-};
 
 BEGIN {
 
@@ -305,11 +293,19 @@ sub hoist {
         $TRUE_TYPE = _personality()->{true_type};
     }
 
-    trace( "HOISTING " . recreate($query) ) if $TRACE{hoist};
+    my $original;
+
+    if ( $TRACE{hoist} ) {
+        $original = recreate($query);
+        trace( 'Hoist ', $original );
+    }
 
     # Simplify the parse tree, work out type information.
-    $query = _rewrite( $query, UNKNOWN );
-    trace( "Rewritten " . recreate($query) ) if $TRACE{hoist};
+    $query = _clarifyFWQuery( $query, UNKNOWN, ' ' );
+
+    if ( $TRACE{hoist} ) {
+        trace( ' Clarified ', $original, ' as ', recreate($query) );
+    }
 
     my %h = _hoist( $query, 'topic' );
     my $alias = _alias(__LINE__);    # SQL server requires this!
@@ -321,16 +317,7 @@ sub hoist {
         # It's a table; test if the selector is a true value
         my $where = '';
         if ( $h{sel} ) {
-            if ( $h{type} == NUMBER || $h{type} == PSEUDO_BOOL ) {
-                $where = '!=0';
-            }
-            elsif ( $h{type} == STRING ) {
-                $where = "!=''";
-            }
-            else {
-                $where = '';    # BOOLEAN
-            }
-            $where = " WHERE $h{sel}$where";
+            $where = " WHERE " . _personality()->is_true( $h{type}, $h{sel} );
         }
         my $a2 = _alias(__LINE__);    # SQL server requires this!
              # This rather clumsy construction is required because SQL server
@@ -339,40 +326,44 @@ sub hoist {
         $h{sql} =
 "topic.tid IN (SELECT tid FROM (SELECT * FROM ($h{sql}) AS $a2 $where) AS $alias)";
     }
-    elsif ( $h{type} == NUMBER || $h{type} == PSEUDO_BOOL ) {
-        $h{sql} = "($h{sql})!=0";
+    else {
+        $h{sql} = _personality()->is_true( $h{type}, $h{sql} );
     }
-    elsif ( $h{type} == STRING ) {
-        $h{sql} = "($h{sql})!=''";
-    }
+    trace( ' Built SQL ', $h{sql} ) if $TRACE{hoist};
+
     return $h{sql};
 }
 
-# The function that does the actual work
+# The function that does the actual work of hoisting a clarified
+# FWQ expression.
 # Params: ($node, $in_table)
-# $node - the node being processed
+# $node - the FWQ node being processed
 # $in_table - the table in which lookup is being performed. A simple ID.
 #
 # Return: %result with keys:
-# sql - the generated SQL
-# type - type of the subexpression
-# is_table_name - true if the statement yields a table (even if not a SELECT)
-# selector - optional selector indicating the single column name chosen
+# sql => the generated SQL
+# type => type of the subexpression
+# is_table_name => true if the statement yields a table (even if not a SELECT)
+# selector => optional selector indicating the single column name chosen
 # in the subquery
-# ignore_tid - set true if the tids in the result come from a subquery
+# ignore_tid => set true if the tids in the result come from a subquery
 # over an unrelated topic. Such tids are not propagated up through
 # boolean operations.
 #
 # Any sub-expression generates a query that yields a table. That table
 # has an associated column (or columns). So,
+#
 # TOPICINFO yields (SELECT * FROM TOPICINFO) if it's used raw
+#
 # TOPICINFO.blah yields (SELECT blah FROM TOPICINFO)
+#
 # fields[name="blah"] yields (SELECT * FROM FIELD WHERE name="blah")
+#
 # 'Topic'/fields[name='blah'].value yields (SELECT value FROM (SELECT * FROM topic,(SELECT * FROM FIELD WHERE name="blah") AS t1 WHERE topic.tid=t1.tid AND topic.name="Topic")
-# tname/sexpr ->
+#
+# tname/sexpr yields
 # (SELECT * FROM topic,sexpr AS t1 WHERE topic.tid=t1.tid AND topic.name=tname
 #                                                             [ $lhs_where   ]
-
 sub _hoist {
     my ( $node, $in_table ) = @_;
 
@@ -456,16 +447,8 @@ sub _hoist {
             _abort( "Cannot use a table name here:",
                 $node, $node->{params}[1] );
         }
-        elsif ( $where{type} == STRING ) {
-
-            # A simple non-table expression
-            $where{sql} = "($where{sql})!=''";
-        }
-        elsif ( $where{type} == NUMBER ) {
-            $where{sql} = "($where{sql})!=0";
-        }
-        elsif ( $where{type} == PSEUDO_BOOL ) {
-            $where{sql} = "($where{sql})!=0";
+        else {
+            $where{sql} = _personality()->is_true( $where{type}, $where{sql} );
         }
 
         my $where = "$where{sql}$tid_constraint";
@@ -687,7 +670,7 @@ sub _hoist {
                 my $where = "($lhs_alias.tid=$rhs_alias.tid)";
                 if ( $optype == BOOLEAN ) {
 
-                    #$where .= " AND ($expr)";
+                    $where .= " AND ($expr)";
                     $expr   = $TRUE;
                     $optype = $TRUE_TYPE;
                 }
@@ -770,12 +753,6 @@ sub _hoist {
         _abort( "Don't know how to hoist '$op':", $node );
     }
 
-    #    if ($TRACE{hoist}) {
-    #        trace( "Hoist " . recreate($node) . " ->");
-    #        trace( "select $result{sel} from") if $result{sel};
-    #        trace( "table name")               if $result{is_table_name};
-    #        trace( _format_SQL( $result{sql} ) . "");
-    #    }
     return %result;
 }
 
@@ -827,15 +804,7 @@ sub _cast {
     my ( $arg, $type, $tgt_type ) = @_;
     return $arg if $tgt_type == UNKNOWN || $type == $tgt_type;
     if ( $tgt_type == BOOLEAN ) {
-        if ( $type == NUMBER ) {
-            $arg = "$arg!=0";
-        }
-        elsif ( $type == PSEUDO_BOOL ) {
-            return "$arg=" . $TRUE;
-        }
-        else {
-            $arg = "$arg!=''";
-        }
+        $arg = _personality()->is_true( $type, $arg );
     }
     elsif ( $tgt_type == NUMBER ) {
         $arg = _personality()->cast_to_numeric($arg);
@@ -846,38 +815,44 @@ sub _cast {
     return $arg;
 }
 
-# _rewrite( $node, $context ) -> $node
-# Rewrite a Foswiki query parse tree to prepare it for SQL hoisting.
+# _clarifyFWQuery( $node, $context, $indent ) -> $node
+# Rewrite a Foswiki query parse tree rooted at $node to prepare it for
+# SQL hoisting. This mainly consists of resolving context dependencies
+# in the expression, and rewriting shorthand expressions to their full form.
 # $context is one of:
 #    * UNKNOWN - the node being processed is in the context of the topic table
 #    * VALUE - context of a WHERE
 #    * TABLE - context of a table expression e.g. LHS of a [
-# Analysis of the parse tree to determine the semantics of names, and
-# the rewriting of shorthand expressions to their full form.
-sub _rewrite {
-    my ( $node, $context ) = @_;
+# $indent is used when debugging for clean printing.
+sub _clarifyFWQuery {
+    my ( $node, $context, $indent ) = @_;
 
     my $before;
     $before = recreate($node) if $TRACE{hoist};
-    my $rewrote = 0;
+    my $lineNo = __LINE__;
 
     my $op = $node->{op};
 
     if ( !ref($op) ) {
         if ( $op == NAME ) {
             my $name = $node->{params}[0];
+
+            # Map to long form if available e.g. 'form' to 'META:FORM'
             my $tname = $Foswiki::Query::Node::aliases{$name} || $name;
 
             if ( $context == UNKNOWN ) {
 
+                # the node being processed is in the context of the topic table
+
                 # A name floating around loose in an expression is
-                # implicitly a column in the topic table.
+                # implicitly a column in the topic table. Rewrite it as a
+                # context-free expression.
                 $parser ||= new Foswiki::Query::Parser();
                 if ( $name =~ /^(name|web|text|raw)$/ ) {
 
-                    $node =
-                      _rewrite( $parser->parse("META:topic.$name"), $context );
-                    $rewrote = __LINE__;
+                    $node = _clarifyFWQuery( $parser->parse("META:topic.$name"),
+                        $context, "$indent " );
+                    $lineNo = __LINE__;
                 }
                 elsif ( $name ne 'undefined' ) {
 
@@ -886,65 +861,69 @@ sub _rewrite {
                     if ( $tname =~ /^META:\w+$/ ) {
                         $node->{params}[0] = $tname;
                         $node->{is_table}  = 1;
-                        $rewrote           = __LINE__;
+                        $lineNo            = __LINE__;
                     }
                     else {
-                        $node = _rewrite(
-                            $parser->parse(
-                                "META:FIELD[name='$node->{params}[0]'].value"),
-                            $context
-                        );
-                        $rewrote = __LINE__;
+                        # name refers to a field in the table. Rewrite it as
+                        # a context-free expression.
+                        $node = _clarifyFWQuery(
+                            $parser->parse("META:FIELD[name='$name'].value"),
+                            $context, "$indent " );
+                        $lineNo = __LINE__;
                     }
                 }
             }
             elsif ( $context == TABLE ) {
 
+                # LHS of a [
+
                 if ( $tname =~ /^META:\w+$/ ) {
                     $node->{params}[0] = $tname;
                     $node->{is_table}  = 1;
-                    $rewrote           = __LINE__;
+                    $lineNo            = __LINE__;
                 }
                 else {
 
                     # An unknown name where a table is expected?
                     # It may be a form name?
-                    $rewrote = __LINE__;
+                    $lineNo = __LINE__;
                 }
             }
             else {    # $context = VALUE
+                      # in a WHERE
 
                 if ( $tname =~ /^META:\w+$/ ) {
 
-                    # This is going to end badly
+                    # Rewrite using the META: name and tag as a table
                     $node->{params}[0] = $tname;
                     $node->{is_table}  = 1;
-                    $rewrote           = __LINE__;
+                    $lineNo            = __LINE__;
                 }
                 else {
 
                     # Name used as a selector
                     $node->{is_selector} = 1;
-                    $rewrote = __LINE__;
+                    $lineNo = __LINE__;
                 }
             }
         }
         else {
 
-            # STRING or NUMBER
-            $rewrote = __LINE__;
+            # STRING or NUMBER. Foswiki doesn't distinguish them :-(
+            $lineNo = __LINE__;
         }
     }
     elsif ( $op->{name} eq '(' ) {
 
-        # Can simply eliminate this
-        $node = _rewrite( $node->{params}[0], $context );
-        $rewrote = __LINE__;
+        # Can simply collapse this
+        $node = _clarifyFWQuery( $node->{params}[0], $context, "$indent " );
+        $lineNo = __LINE__;
     }
     elsif ( $op->{name} eq 'int' ) {
 
-        $node = _rewrite( $node->{params}[0], $context );
-        $rewrote = __LINE__;
+        # Can simply collapse this
+        $node = _clarifyFWQuery( $node->{params}[0], $context, "$indent " );
+        $lineNo = __LINE__;
     }
     elsif ( $op->{name} eq '.' ) {
 
@@ -952,8 +931,8 @@ sub _rewrite {
         # information to determine how it should be parsed. We don't have
         # all that context here, so we have to do the best we can with what
         # we have, and rewrite it as a []
-        my $lhs = _rewrite( $node->{params}[0], TABLE );
-        my $rhs = _rewrite( $node->{params}[1], VALUE );
+        my $lhs = _clarifyFWQuery( $node->{params}[0], TABLE, "$indent " );
+        my $rhs = _clarifyFWQuery( $node->{params}[1], VALUE, "$indent " );
 
         unless ( $lhs->{is_table} ) {
             trace( __LINE__ . " lhs may not be a table." . recreate($lhs) )
@@ -972,35 +951,37 @@ sub _rewrite {
             $parser ||= new Foswiki::Query::Parser();
 
             # Must rewrite to infer types
-            $node = _rewrite(
+            $node = _clarifyFWQuery(
                 $parser->parse("META:FIELD[name='$rhs->{params}[0]'].value"),
-                $context );
-            $rewrote = __LINE__;
+                $context, "$indent " );
+            $lineNo = __LINE__;
         }
         else {
 
             # The result of the subquery might be a table or a single
             # value, but either way we have to treat it as a table.
             $node->{is_table} = 1;
-            $rewrote = __LINE__;
+            $lineNo = __LINE__;
         }
     }
     elsif ( $op->{name} eq '[' ) {
 
-        my $lhs = _rewrite( $node->{params}[0], TABLE );
-        my $rhs = _rewrite( $node->{params}[1], VALUE );
+        my $lhs = _clarifyFWQuery( $node->{params}[0], TABLE, "$indent " );
+        my $rhs = _clarifyFWQuery( $node->{params}[1], VALUE, "$indent " );
 
         $node->{is_table} = 1;
     }
     else {
         for ( my $i = 0 ; $i < $op->{arity} ; $i++ ) {
-            my $nn = _rewrite( $node->{params}[$i], $context );
+            my $nn =
+              _clarifyFWQuery( $node->{params}[$i], $context, "$indent " );
             $node->{params}[$i] = $nn;
         }
         my $nop = $op->{name};
     }
 
-    trace( "$rewrote: Rewrote $before as " . recreate($node) )
+    trace( $indent, $lineNo, ': Clarified FWQ ',
+        $before, ' as ', recreate($node) )
       if $TRACE{hoist};
     return $node;
 }
@@ -1124,6 +1105,7 @@ sub recreate {
     elsif ( $node->{op} == STRING ) {
         $s = $node->{params}[0];
         $s =~ s/\\/\\\\/g;
+        $s = "'$s'";
     }
     else {
         $s = $node->{params}[0];
@@ -1136,7 +1118,7 @@ __DATA__
 
 Module of Foswiki - The Free and Open Source Wiki, http://foswiki.org/, http://Foswiki.org/
 
-Copyright (C) 2014 Foswiki Contributors. All Rights Reserved.
+Copyright (C) 2014-2017 Foswiki Contributors. All Rights Reserved.
 Foswiki Contributors are listed in the AUTHORS file in the root
 of this distribution. NOTE: Please extend that file, not this notice.
 

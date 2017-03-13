@@ -43,7 +43,7 @@ have to be present in the database cache for the tests to work.
 | > | %QEQ{cond="3>20" res="0"}% |
 | > literal | %QEQ{cond="30>2" res="%NT%"}% |
 | < | %QEQ{cond="3<20" res="%NT%"}% |
-| string < | %QEQ{cond="'3'<'20'" res="%NT%"}% |
+| string < | %QEQ{cond="is_number('3')<'20'" res="%NT%"}% |
 | Simple regex | %QEQ{res="2" cond="'AA'=~'A'" }% |
 | Numeric Field | %QEQ{cond="number" res="%NT%"}% |
 | Boolean field | %QEQ{cond="boolean" res="1"}% |

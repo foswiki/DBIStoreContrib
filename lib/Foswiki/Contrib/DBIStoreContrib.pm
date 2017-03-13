@@ -36,7 +36,8 @@ our %TRACE = (
 
 require Exporter;
 our @ISA       = qw(Exporter);
-our @EXPORT_OK = qw(%TRACE trace);
+our @EXPORT_OK = qw(%TRACE trace site2utf utf2site
+  NAME NUMBER STRING UNKNOWN BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 
 our $SHORTDESCRIPTION = 'Use DBI to implement a store using an SQL database.';
 
@@ -80,7 +81,7 @@ sub personality {
 
         eval "require $module";
         if ($@) {
-            trace $@;
+            trace($@);
             die "Failed to load personality module $module";
         }
         $personality = $module->new();
@@ -88,13 +89,39 @@ sub personality {
     return $personality;
 }
 
-# Used throughout the module
+# Used throughout the module. Parameters are iterated through to generate
+# the printed string. During the iteration, if the previous parameter
+# ends in #, treat the current as a value. This is so
+# we can write trace("X: #", $v) and get quotes generated iff $v
+# is a string.
 sub trace {
+
+    # Determine if parameter is numeric or a string, print quotes if it's
+    # a string.
+    my @s;
+    my $nv = 0;
+    foreach (@_) {
+        my $v = $_;
+        if ($nv) {
+            $v = (
+                length(
+                    do { no warnings "numeric"; $v & "" }
+                )
+            ) ? $v : "'$v'";
+            $nv = 0;
+        }
+        else {
+            $nv = ( $v =~ s/#$// );
+        }
+        push( @s, $v );
+    }
+
+    my $s = join( '', @s );
     if ( $TRACE{cli} ) {
-        print STDERR join( "\n", @_ ) . "\n";
+        print STDERR "$s\n";
     }
     else {
-        Foswiki::Func::writeDebug( join( "\n", @_ ) );
+        Foswiki::Func::writeDebug($s);
     }
 }
 
@@ -117,7 +144,7 @@ sub _connect {
             $Foswiki::cfg{Extensions}{DBIStoreContrib}{Password} = '';
         }
 
-        trace "CONNECT $Foswiki::cfg{Extensions}{DBIStoreContrib}{DSN}..."
+        trace( 'CONNECT ', $Foswiki::cfg{Extensions}{DBIStoreContrib}{DSN} )
           if $TRACE{load};
 
         $dbh = DBI->connect(
@@ -127,7 +154,7 @@ sub _connect {
             { RaiseError => 1, AutoCommit => 1 }
         ) or die $DBI::errstr;
 
-        trace "Connected" if $TRACE{load};
+        trace('Connected') if $TRACE{load};
 
         personality()->startup($dbh);
     }
@@ -141,15 +168,15 @@ sub _connect {
             my $tables = $dbh->selectcol_arrayref('SELECT name FROM metatypes');
             foreach my $table (@$tables) {
                 unless ( $personality->table_exists($table) ) {
-                    trace "$table is in metatypes but does not exist";
+                    trace( $table, ' is in metatypes but does not exist' );
                 }
             }
         }
         return 1 unless ($session);
-        trace "HARD RESET" if $TRACE{load};
+        trace('HARD RESET') if $TRACE{load};
     }
     elsif ( $TRACE{load} ) {
-        trace "Base tables don't exist";
+        trace('Base metatypes and topic tables don\'t exist');
         ASSERT($session);
     }
 
@@ -169,19 +196,19 @@ sub _connect {
     foreach my $table ( keys %tables ) {
         if ( $personality->table_exists($table) ) {
             $dbh->do( 'DROP TABLE ' . $personality->safe_id($table) );
-            trace "Dropped $table" if $TRACE{load};
+            trace( 'Dropped ', $table ) if $TRACE{load};
         }
     }
 
     # No topic table, or we've had a hard reset
-    trace "Loading DB schema" if $TRACE{load};
+    trace('Loading DB schema') if $TRACE{load};
     _createTables();
 
     # We only preload after a hard reset
     if ( $session && !$Foswiki::inUnitTestMode ) {
-        trace "Schema loaded; preloading content" if $TRACE{load};
+        trace('Schema loaded; preloading content') if $TRACE{load};
         _preload($session);
-        trace "DB preloaded" if $TRACE{load};
+        trace('DB preloaded') if $TRACE{load};
     }
     return 1;
 }
@@ -222,7 +249,7 @@ sub _createTable {
     }
     my $cols = join( ',', @cols );
     my $sql = "CREATE TABLE $sn ( $cols )";
-    trace $sql if $TRACE{load};
+    trace($sql) if $TRACE{load};
     $dbh->do($sql);
 
     # Add non-primary tables to the table of tables
@@ -241,7 +268,7 @@ sub _createTable {
           . $personality->safe_id("IX_${tname}_${cname}") . ' ON '
           . $personality->safe_id($tname) . '('
           . $personality->safe_id($cname) . ')';
-        trace $sql if $TRACE{load};
+        trace($sql) if $TRACE{load};
         $dbh->do($sql);
     }
 }
@@ -257,7 +284,7 @@ sub _createTables {
     {
         next if $name eq 'metatypes' || $name =~ /^_/;
 
-        trace "Creating table for $name" if $TRACE{load};
+        trace( 'Creating table for ', $name ) if $TRACE{load};
         _createTable( $name, $schema );
     }
     $dbh->do('COMMIT') if $personality->{requires_COMMIT};
@@ -285,7 +312,7 @@ sub _preloadWeb {
     while ( $tit->hasNext() ) {
         my $t = $tit->next();
         my $topic = Foswiki::Meta->load( $session, $w, $t );
-        trace "Preloading topic $w/$t" if $TRACE{load};
+        trace( 'Preloading topic ', $w, '/', $t ) if $TRACE{load};
         insert( $topic, undef, "$web.$t" );
     }
 
@@ -295,11 +322,20 @@ sub _preloadWeb {
     }
 }
 
-sub _convertToUTF8 {
+# Foswiki <1.2 compatibility - not needed in 1.2, which is utf-8 native
+sub site2utf {
     return $_[0] if ( $Foswiki::cfg{Site}{CharSet} eq 'utf-8' );
     my $text = shift;
     $text = Encode::decode( $Foswiki::cfg{Site}{CharSet}, $text );
     $text = Encode::encode( 'utf-8', $text );
+    return $text;
+}
+
+sub utf2site {
+    return $_[0] if ( $Foswiki::cfg{Site}{CharSet} eq 'utf-8' );
+    my $text = shift;
+    $text = Encode::decode( 'utf-8', $text );
+    $text = Encode::encode( $Foswiki::cfg{Site}{CharSet}, $text );
     return $text;
 }
 
@@ -393,7 +429,7 @@ sub _findOrCreateTable {
             $schema->{$col} ||= '_DEFAULT';
         }
     }
-    trace "Creating fly table for $type" if $TRACE{load};
+    trace( 'Creating fly table for ', $type ) if $TRACE{load};
     _createTable( $type, $schema );
 
     $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type} = $schema;
@@ -424,11 +460,11 @@ sub _findOrCreateColumn {
           . $personality->safe_id($col) . ' '
           . $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{_DEFAULT}
           ->{type};
-        trace $sql if $TRACE{load};
+        trace($sql) if $TRACE{load};
         $dbh->do($sql);
     }
 
-    trace "Added '$type.$col' to the schema" if $TRACE{load};
+    trace( 'Added ', $type, '.', $col . ' to the schema' ) if $TRACE{load};
 
     # _column will give us the default type if
     # the column name isn't matched
@@ -452,8 +488,8 @@ sub insert {
     _connect();
 
     if ( defined $attachment ) {
-        ASSERT( $mo->web )   if DEBUG;
-        ASSERT( $mo->topic ) if DEBUG;
+        ASSERT( $mo->web() )   if DEBUG;
+        ASSERT( $mo->topic() ) if DEBUG;
 
         # Note that we DO NOT explicitly add the META:FILEATTACHMENT
         # entry table here.
@@ -467,9 +503,9 @@ sub insert {
             my $tid =
               $dbh->selectrow_array( 'SELECT tid FROM topic '
                   . "WHERE web='"
-                  . $mo->web
+                  . site2utf( $mo->web() )
                   . " AND name='"
-                  . $mo->topic
+                  . site2utf( $mo->topic() )
                   . "'" );
             ASSERT($tid) if DEBUG;
 
@@ -485,13 +521,14 @@ sub insert {
         my $tid = $dbh->selectrow_array('SELECT MAX(tid) FROM topic')
           || 0;
         $tid++;
-        trace "\tInsert $tid" if $TRACE{load};
-        my $text      = _convertToUTF8( $mo->text() );
-        my $esf       = _convertToUTF8( $mo->getEmbeddedStoreForm() );
-        my $topicName = _convertToUTF8( $mo->topic() );
+        trace( "\tInsert ", $tid ) if $TRACE{load};
+        my $text      = site2utf( $mo->text() );
+        my $esf       = site2utf( $mo->getEmbeddedStoreForm() );
+        my $webName   = site2utf( $mo->web() );
+        my $topicName = site2utf( $mo->topic() );
         $dbh->do(
             'INSERT INTO topic (tid,web,name,text,raw) VALUES (?,?,?,?,?)',
-            {}, $tid, $mo->web(), $topicName, $text, $esf );
+            {}, $tid, $webName, $topicName, $text, $esf );
 
         foreach my $type ( keys %$mo ) {
 
@@ -527,16 +564,18 @@ sub insert {
                   . join( ',', map { '?' } @kns ) . ")";
                 shift(@kns);
 
-                trace "$sql [tid," . join(
-                    ',',
+                trace(
+                    $sql, ' [tid',
                     map {
-                        defined $item->{$_}
-                          ? _truncate( $item->{$_}, 80 )
-                          : 'NULL'
-                    } @kns
-                  )
-                  . ']'
-                  if $TRACE{load};
+                        (
+                            ',#',
+                            defined $item->{$_}
+                            ? _truncate( $item->{$_}, 80 )
+                            : 'NULL'
+                          )
+                      } @kns,
+                    ']'
+                ) if $TRACE{load};
 
                 $dbh->do(
                     $sql,
@@ -544,10 +583,8 @@ sub insert {
                     $tid,
                     map {
                         defined $item->{$_}
-                          ? _truncate(
-                            _convertToUTF8( $item->{$_} ),
-                            _column( $type, $_ )->{truncate_to}
-                          )
+                          ? _truncate( site2utf( $item->{$_} ),
+                            _column( $type, $_ )->{truncate_to} )
                           : undef
                     } @kns
                 );
@@ -575,10 +612,10 @@ sub remove {
 
     _connect();
 
-    my $webName = _convertToUTF8( $mo->web() );
+    my $webName = site2utf( $mo->web() );
 
     if ( $mo->topic() ) {
-        my $topicName = _convertToUTF8( $mo->topic() );
+        my $topicName = site2utf( $mo->topic() );
 
         my $sql = "SELECT tid FROM topic WHERE topic.web='" . $webName . "'";
         $sql .= " AND topic.name='" . $topicName . "'";
@@ -614,7 +651,7 @@ sub remove {
         else {
 
             foreach my $tid (@$tids) {
-                trace "\tRemove $tid" if $TRACE{load};
+                trace( "\tRemove ", $tid ) if $TRACE{load};
                 my $tables =
                   $dbh->selectcol_arrayref('SELECT name FROM metatypes');
                 foreach my $table ( 'topic', @$tables ) {
@@ -634,7 +671,7 @@ sub remove {
 
 Renames a FW object in the database.
 
-May throw an execption if SQL failed.
+May throw an exception if SQL failed.
 
 =cut
 
@@ -644,10 +681,10 @@ sub rename {
     _connect();
 
     if ( $mo->web() && !$mo->topic() ) {
-        my $oldWebName = _convertToUTF8( $mo->web() );
-        my $newWebName = _convertToUTF8( $mn->web() );
+        my $oldWebName = site2utf( $mo->web() );
+        my $newWebName = site2utf( $mn->web() );
 
-        trace "\tRename web from $oldWebName to $newWebName"
+        trace( "\tRename web from ", $oldWebName, " to ", $newWebName )
           if $TRACE{load};
         $dbh->do(
             "UPDATE topic SET web = '$newWebName' WHERE web = '$oldWebName'");
@@ -686,7 +723,7 @@ sub reset {
     # Connect with hard reset
     eval { _connect($session); };
     if ($@) {
-        trace $@;
+        trace($@);
         die $@;
     }
 }
@@ -698,7 +735,7 @@ Author: Crawford Currie http://c-dot.co.uk
 
 Module of Foswiki - The Free and Open Source Wiki, http://foswiki.org/, http://Foswiki.org/
 
-Copyright (C) 2013-2014 Foswiki Contributors. All Rights Reserved.
+Copyright (C) 2013-2017 Foswiki Contributors. All Rights Reserved.
 Foswiki Contributors are listed in the AUTHORS file in the root
 of this distribution. NOTE: Please extend that file, not this notice.
 

@@ -110,10 +110,10 @@ sub DBI_query {
         }
     };
     if ($@) {
-        trace "$@\n" if $TRACE{updates};
+        trace($@) if $TRACE{updates};
         die $@;
     }
-    trace 'HITS: ' . scalar(@names), map { "\t$_" } @names
+    trace( 'HITS: ', scalar(@names), map { "\t$_" } @names )
       if $TRACE{updates};
     return \@names;
 }

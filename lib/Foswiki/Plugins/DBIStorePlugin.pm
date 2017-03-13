@@ -1,5 +1,5 @@
-# This is a plugin stub used to support the DBIStoreContrib with Foswiki
-# versions < 1.2 that lack the Foswiki::Store::recordChange function.
+# Plugin that provides the handlers for detecting store operations so the
+# DBIStoreContrib can update the cache DB
 
 package Foswiki::Plugins::DBIStorePlugin;
 

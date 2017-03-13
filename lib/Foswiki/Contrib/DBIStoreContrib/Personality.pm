@@ -5,7 +5,9 @@ use strict;
 use warnings;
 use Assert;
 
-use Foswiki::Contrib::DBIStoreContrib ();
+# Import type constants
+use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
+  BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 
 # We try to use the ANSI SQL standard as far as possible, for the most
 # part different SQL DB implementations support it fairly well. However
@@ -285,6 +287,30 @@ sub cast_to_numeric {
 
 =begin TML
 
+---++ is_true($type, $sql) -> $sql
+Test if SQL computes to NULL. Ideally this will test if the SQL evaluates
+to the empty string, NULL, boolean FALSE or a numeric value of zero.
+
+=cut
+
+sub is_true {
+    my ( $this, $type, $sql ) = @_;
+    if ( $type == NUMBER || $type == PSEUDO_BOOL ) {
+        return "($sql)!=0";
+    }
+    elsif ( $type == STRING ) {
+
+        # Trickier, as under perl semantics '', '0' and undef all evaluate
+        # to false.
+        return "($sql)!=''";
+    }
+    else {    # $type == BOOLEAN
+        return $sql;
+    }
+}
+
+=begin TML
+
 ---++ cast_to_string($sql) -> $sql
 Cast a datum to a character string type for comparison
 
@@ -329,7 +355,7 @@ Author: Crawford Currie http://c-dot.co.uk
 
 Module of Foswiki - The Free and Open Source Wiki, http://foswiki.org/, http://Foswiki.org/
 
-Copyright (C) 2013-2014 Foswiki Contributors. All Rights Reserved.
+Copyright (C) 2013-2017 Foswiki Contributors. All Rights Reserved.
 Foswiki Contributors are listed in the AUTHORS file in the root
 of this distribution. NOTE: Please extend that file, not this notice.
 

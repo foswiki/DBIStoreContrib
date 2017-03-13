@@ -51,7 +51,7 @@ sub startup {
     $this->{dbh}->do("SET sql_mode='ANSI'");
     $this->{dbh}->do('SELECT @sql_mode');
 
-    #set to UTF8
+    # set to UTF8
     $this->{dbh}->do("SET NAMES utf8");
 }
 

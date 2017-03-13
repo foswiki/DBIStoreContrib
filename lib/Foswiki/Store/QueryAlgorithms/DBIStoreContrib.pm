@@ -22,7 +22,7 @@ use Foswiki::Search::ResultSet ();
 use Foswiki::MetaCache         ();
 use Foswiki::Query::Node       ();
 use Foswiki::Func              ();
-use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace);
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace utf2site);
 
 BEGIN {
     eval 'require Foswiki::Store::Interfaces::QueryAlgorithm';
@@ -191,8 +191,8 @@ sub query {
     my $topicSet = [];
     my $sth      = Foswiki::Contrib::DBIStoreContrib::query($sql);
     while ( my @row = $sth->fetchrow_array() ) {
-        my $_web  = _convertFromUTF8( $row[0] );
-        my $_name = _convertFromUTF8( $row[1] );
+        my $_web  = utf2site( $row[0] );
+        my $_name = utf2site( $row[1] );
         trace(  "Decoded: "
               . $_web . " / "
               . $_name
@@ -260,13 +260,6 @@ sub query {
 
     # Add paging if applicable.
     return $this->addPager( $resultset, $options );
-}
-
-sub _convertFromUTF8 {
-    my $text = shift;
-    $text = Encode::decode( 'utf-8', $text );
-    $text = Encode::encode( $Foswiki::cfg{Site}{CharSet}, $text );
-    return $text;
 }
 
 # Expand web and topic limits to SQL expressions that can be

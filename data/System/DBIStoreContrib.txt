@@ -8,18 +8,11 @@ META:TOPICINFO{author="ProjectContributor" comment="save topic" date="1401385201
 %TOC%
 
 This extension supports the storing of wiki data in an SQL database.
-Works with Foswiki 1.1.9.
 
-NOTE: the implementation for Foswiki 1.2 is currently incomplete. Please
-do not try to use this version of DBIStoreContrib on Foswiki 1.2!
-
-At this point in time, it works as a mirror of an existing
-store (e.g. PlainFile, RCS)
+Works as a mirror of an existing store (e.g. PlainFile, RCS)
    1. With all searching operations performed using SQL _or_
-   2. With just structured queries performed using the store _or_
+   2. With just structured queries performed using SQL _or_
    3. Simply to support other clients querying data using SQL.
-(However it may be extended to be a full store implementation at
-some point in the future.)
 
 The extension has been designed to be *fully compatible* with existing
 =%SEARCH= expressions, and is usable with all well-written extensions (those
@@ -63,19 +56,7 @@ Perl syntax supported by Foswiki that cannot be mapped to the databases.
 Regular expressions written using this extended syntax may fail.
 
 ---+++ Numeric comparison
-Foswiki "knows" when two values in the database can be compared using numeric, as against lexical, comparison (the =, <, >, <= and >= operators). SQL doesn't have this kind of support, and has to be explicitly *told* whether the values being compared are numeric or lexical.
-
-If one of the things being compared is explicitly a number, then numeric comparison will be used by default.
-
-If the query expression isn't explicit about the type to be used, you can use the =is_number()= operator to indicate when one side represents a number or =is_string()= when it is a string. You only need to use =number= / =string= on one side of an expression. For example,
-
-   * =%<nop>SEARCH{"info.version<'1.1'"}%= will always use lexical comparison
-   * =%<nop>SEARCH{"info.version<1.1"}%= will always use numeric comparison
-   * =%<nop>SEARCH{"info.version<is_number('1.1')"}%= will use numeric comparison
-   * =%<nop>SEARCH{"info.version<is_string(1.1)"}%= will use lexical comparison
-
-SQL =CAST= (or equivalent) statements are used to convert value types
-being compared.
+Foswiki is built on Perl, which "knows" when two values in the database can be compared using numeric comparison (the =, <, >, <= and >= operators). SQL doesn't have this kind of support, and will always use lexical comparison on strings, so be careful when comparing using numeric comparison operators, as the results are likely to be different to what base Foswiki would return.
 
 ---+++ Date comparison
 Date conversion using the =d2n= operator is not supported with Postgresql and
@@ -106,28 +87,22 @@ The =length()= operator only works on string data, not on tables.
 
 ---+++ Testing
 
-Basic tests for queries can be found in the DBIStoreTest topic.
+Basic tests for queries can be found in the Sandbox.DBIStoreTest topic.
 
 ---+++ Reloading the database
 
 It may become necessary to reload the DBI database - for example, because
-changes to topics have been made outside of Foswiki.
-
----++++ Foswiki <1.20
-Click on the following link to clear down and re-load the entire database. *WARNING* on a large site this may take a very long time. You may prefer to run it from the command-line,
-using a command like this:
+changes to topics have been made outside of Foswiki. You are recommended to use
+=tools/dbistore_manage.pl= to do this.
 <verbatim>
-./view topic=System.DBIStoreTest skin=text dbistore_reset=1
+$ cd bin
+$ perl ../tools/dbistore_manage.pl --help
 </verbatim>
-You can also update an individual topic by passing =dbistore_update= to a
-view of the topic. For example,
-<verbatim>
-./view topic=System.DBIStoreTest skin=text dbistore_update=1
-</verbatim>
-will update the DB for System.DBIStoreTest *only*.
+for more information on resetting the entire database or updating individual
+topics. This program also allows you to run Foswiki search queries against
+the database.
 
----++++ Foswiki 1.2 and later
-To be completed
+You can also use the plugin to update topics or reset the entire DB. The Sandbox.DBIStoreTest topic contains links that show you how to do this. Only admins can reset the entire DB.
 
 ---+++ Unknown meta-data *EXPERT*
 
@@ -135,7 +110,9 @@ Normally the module will only record recognised meta-data in the database,
 and so make it accessible for searching. "Recognised" meta-data is meta-data
 created by the core and by plugins that use the =Foswiki::Func::registerMETA=
 method to announce meta-data to the system. In exceptional circumstances you
-can override this behaviour by setting the ={Extensions}{DBIStoreContrib}{AutoloadUnknownMETA}= control in =configure=. This will cause *all* meta-data being recorded in the database, even if the plugin which is supposed to register it is missing, broken, or simply too old to do the right thing.
+can override this behaviour by setting the ={Extensions}{DBIStoreContrib}{AutoloadUnknownMETA}= control in =configure=. This will cause *all* meta-data to be
+recorded in the database, even if the plugin which is supposed to register
+it is missing, broken, or simply too old to do the right thing.
 
 ---+++ !MySQL Notes
 The !MySQL database user needs at least the following privileges:
@@ -161,7 +138,7 @@ ALTER DATABASE Foswiki COLLATE Latin1_General_100_CS_AS_SC;
 Without this, upper and lower case strings will be compared case-insensitively, and the DB will be unable to distinguish =ThisTopicName= and =THISTOPICNAME=.
 
 ---+++ SQLite Notes
-SQLite requires the =pcre= module to be installed to support regular expression searches. The path to this module is set up in =configure=.
+SQLite requires the =pcre= module to be installed to support regular expression searches. The path to this module is set up in =configure=. 
 
 ---++ How it works
 ---+++ Searches and Queries
