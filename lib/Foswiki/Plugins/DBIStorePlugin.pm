@@ -41,33 +41,6 @@ sub initPlugin {
     return 1;
 }
 
-sub commonTagsHandler {
-
-    # Normally preloading only occurs when the DB first connects, which
-    # only happens when a topic is moved or saved. To short-circuit this,
-    # the plugin supports the "?dbistore_reset" parameter, which will
-    # do that chore. Only admins can call it. It's done this late in
-    # the pipeline to ensure plugins have had a chance to register META
-    # requirements.
-    if ( Foswiki::Func::getRequestObject->param('dbistore_reset')
-        && Foswiki::Func::isAnAdmin() )
-    {
-        trace('DBIStorePlugin: Resetting') if $TRACE{plugin};
-        Foswiki::Func::getRequestObject->delete('dbistore_reset');
-        Foswiki::Contrib::DBIStoreContrib::reset($Foswiki::Plugins::SESSION);
-    }
-    elsif ( Foswiki::Func::getRequestObject->param('dbistore_update') ) {
-        my ( $text, $topic, $web, $included, $meta ) = @_;
-        Foswiki::Func::getRequestObject->delete('dbistore_update');
-        trace( 'DBIStorePlugin: Update ' . $meta->getPath() )
-          if $TRACE{plugin};
-        Foswiki::Contrib::DBIStoreContrib::start();
-        Foswiki::Contrib::DBIStoreContrib::remove($meta);
-        Foswiki::Contrib::DBIStoreContrib::insert($meta);
-        Foswiki::Contrib::DBIStoreContrib::commit();
-    }
-}
-
 # Store operations that *should* call the relevant store functions
 #    moveTopic
 #    moveWeb

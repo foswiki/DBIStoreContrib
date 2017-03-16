@@ -39,7 +39,8 @@ use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace);
 use Foswiki::Meta ();
 
 my @traces;
-my @updates;
+my @loads;
+my @reloads;
 my @sqls;
 my @queries;
 my $reset;
@@ -49,7 +50,8 @@ my $topic;
 my $result = Getopt::Long::GetOptions(
     'trace=s'  => \@traces,
     'reset'    => \$reset,
-    'update=s' => \@updates,
+    'reload=s' => \@reloads,
+    'load=s'   => \@loads,
     'sql=s'    => \@sqls,
     'query=s'  => \@queries,
     'topic=s'  => \$topic,
@@ -78,36 +80,50 @@ foreach my $o ( split( /,/, join( ',', @traces ) ) ) {
     }
 }
 
-print "TRACE: " . join( ' ', grep { $TRACE{$_} } sort keys %TRACE ) . "\n";
+#print "TRACE: " . join( ' ', grep { $TRACE{$_} } sort keys %TRACE ) . "\n";
 $TRACE{cli} = 1;
 
-my $fw = new Foswiki();
+my $fw      = new Foswiki();
+my $opsDone = 0;               # Number of operations done
 
 # Full reset
 if ($reset) {
-    if (   $topic
-        || scalar(@updates) > 0
-        || scalar(@sqls) > 0
-        || scalar(@queries) > 0
-        || scalar(@ARGV) > 0 )
-    {
-        Pod::Usage::pod2usage( -exitstatus => 0, -verbose => 2 );
-        die "--reset must be only parameter";
-    }
     Foswiki::Contrib::DBIStoreContrib::reset($fw);
-    exit 0;
+    $opsDone++;
 }
 
-# Topic to be updated
-foreach my $wn (@updates) {
-    my ( $w, $t ) = $fw->normalizeWebTopicName( undef, $wn );
-    my $meta = Foswiki::Meta->new( $fw, $w, $t );
-    $meta->load();
-    trace "Update $w.$t";
-    Foswiki::Contrib::DBIStoreContrib::start();
-    Foswiki::Contrib::DBIStoreContrib::remove($meta);
-    Foswiki::Contrib::DBIStoreContrib::insert($meta);
-    Foswiki::Contrib::DBIStoreContrib::commit();
+sub _refresh {
+    my ( $full, $topics ) = @_;
+    for my $wt (@$topics) {
+        if ( $wt eq '*' ) {
+            $topics = ['*'];
+            last;
+        }
+    }
+    foreach my $wt (@$topics) {
+        if ( $wt eq '*' ) {
+            Foswiki::Contrib::DBIStoreContrib::load( Foswiki::Meta->new($fw),
+                $full );
+        }
+        else {
+            my ( $w, $t ) = $fw->normalizeWebTopicName( undef, $wt );
+            my $mo = Foswiki::Meta->load( $fw, $w, $t );
+            Foswiki::Contrib::DBIStoreContrib::load( $mo, $full, $fw );
+        }
+    }
+    $opsDone++;
+}
+
+# Topic(s) to be reloaded
+if ( scalar @reloads ) {
+    _refresh( 1, \@reloads );
+    $opsDone++;
+}
+
+# Topic(s) to be loaded
+if ( scalar @loads ) {
+    _refresh( 0, \@loads );
+    $opsDone++;
 }
 
 if ($topic) {
@@ -130,12 +146,21 @@ if ( scalar(@queries) ) {
         $sql .= " AND web='$web'"    if $web;
         push( @sqls, $sql );
     }
+    $opsDone++;
 }
 
 # SQL query
 foreach my $q (@sqls) {
     my $sth = Foswiki::Contrib::DBIStoreContrib::query($q);
     $sth->dump_results();
+    $opsDone++;
+}
+
+unless ($opsDone) {
+    Pod::Usage::pod2usage(
+        -exitstatus => 0,
+        -verbose    => 2,
+    );
 }
 
 1;
@@ -153,15 +178,32 @@ Command-line management for DBIStoreContrib
 
 =over 8
 
-=item B<--update> topic
+=item B<--reset>
 
-Unload the given topic from the DB, and reload it from the backing store.
-You can give as many --update options as you want.
+Clear down the database, and recreate the base tables from the schema
+described in C<LocalSite.cfg>. Does not load any webs or topics, unless
+C<--load> or C<--reload> is also given.
+Ensure the wiki is not in use before resetting the database!
+
+=item B<--load> topic
+
+Load the given topic if it is present in the backing store
+but missing from the database.
+
+C<--load *> can be used to load all missing topics.
+
+=item B<--reload> topic
+
+Reload the given topic from the backing store. If the topic is already in the DB
+it is completely unloaded first before reloading. You can give as many C<--reload>
+options as you want.
+
+C<--reload *> can be used to reload all topics in the store.
 
 =item B<--sql> SQL
 
 Execute the given SQL query over the DB, and report the result.
-You can give as many --sql options as you want.
+You can give as many C<--sql> options as you want.
 
 =item B<--topic> topic
 
@@ -170,23 +212,17 @@ given, queries are executed over the entire database).
 
 =item B<--query> TML query
 
-Execute the given TML query, and report the result.
-You can give as many --query options as you want.
-
-=item B<--reset>
-
-Clear down the database, and reload all topics from scratch. Slow and expensive.
-If --reset is given, other options and parameters are disabled. Ensure
-the wiki is not in use before resetting the database!
+Execute the given TML query (over the C<--topic> if given), and report the
+result. You can give as many C<--query> options as you want.
 
 =item B<--trace>
 
-Enable a trace option. --help trace can be used to list trace keys.
---trace all will switch on all trace options. Trace output is printed
+Enable a trace option. C<--help trace> can be used to list trace keys.
+C<--trace all> will switch on all trace options. Trace output is printed
 to STDERR.
 
 =item B<--help>
 
-Print this information.
+Print this information. C<--help trace> will list available trace keys.
 
 =back

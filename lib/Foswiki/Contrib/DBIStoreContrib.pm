@@ -27,7 +27,7 @@ our $RELEASE = '9 Mar 2017';
 # Global options, used to control tracing etc throughout the module
 our %TRACE = (
     hoist   => 0,
-    load    => 0,
+    action  => 0,
     plugin  => 0,
     search  => 0,
     sql     => 0,
@@ -145,7 +145,7 @@ sub _connect {
         }
 
         trace( 'CONNECT ', $Foswiki::cfg{Extensions}{DBIStoreContrib}{DSN} )
-          if $TRACE{load};
+          if $TRACE{action};
 
         $dbh = DBI->connect(
             $Foswiki::cfg{Extensions}{DBIStoreContrib}{DSN},
@@ -160,7 +160,7 @@ sub _connect {
     # Check if the DB is initialised with a quick sniff of the tables
     # to see if all the ones we expect are there
     if ( $personality->table_exists( 'metatypes', 'topic' ) ) {
-        if ( $TRACE{load} ) {
+        if ( $TRACE{action} ) {
 
             # Check metatypes integrity
             my $tables = $dbh->selectcol_arrayref('SELECT name FROM metatypes');
@@ -171,9 +171,9 @@ sub _connect {
             }
         }
         return 1 unless ($session);
-        trace('HARD RESET') if $TRACE{load};
+        trace('HARD RESET') if $TRACE{action};
     }
-    elsif ( $TRACE{load} ) {
+    elsif ( $TRACE{action} ) {
         trace('Base metatypes and topic tables don\'t exist');
         ASSERT($session);
     }
@@ -200,15 +200,11 @@ sub _connect {
     }
 
     # No topic table, or we've had a hard reset
-    trace('Loading DB schema') if $TRACE{load};
+    trace('Loading DB schema') if $TRACE{action};
     _createTables();
 
-    # We only preload after a hard reset
-    if ( $session && !$Foswiki::inUnitTestMode ) {
-        trace('Schema loaded; preloading content') if $TRACE{load};
-        _preload($session);
-        trace('DB preloaded') if $TRACE{load};
-    }
+    trace('Schema loaded') if $TRACE{action};
+
     return 1;
 }
 
@@ -286,41 +282,72 @@ sub _createTables {
     {
         next if $name eq 'metatypes' || $name =~ /^_/;
 
-        trace( 'Creating table for ', $name ) if $TRACE{load};
+        trace( 'Creating table for ', $name ) if $TRACE{action};
         _createTable( $name, $schema );
     }
     commit();
 }
 
-# Load all existing webs and topics into the DB (expensive)
-sub _preload {
-    my ($session) = @_;
-    my $root      = Foswiki::Meta->new($session);
-    my $wit       = $root->eachWeb();
-    while ( $wit->hasNext() ) {
-        my $web = $wit->next();
-        _preloadWeb( $web, $session );
-    }
-    commit();
+# Determine if the web or topic represented by $meta is present in the DB.
+# Returns the topic tids if present, or false otherwise.
+sub _getTIDs {
+    my $mo = shift;
+
+    my $sql =
+        'SELECT tid FROM topic WHERE '
+      . ( $mo->topic ? ' name=\'' . site2utf( $mo->topic ) . '\' AND ' : '' )
+      . ' web=\''
+      . site2utf( $mo->web() ) . '\'';
+    return $dbh->selectrow_arrayref($sql);
 }
 
-# Preload a single web - PRIVATE
-# pass web and topic name to insert() simply so it appears in stack traces
-sub _preloadWeb {
-    my ( $w, $session ) = @_;
-    my $web = Foswiki::Meta->new( $session, $w );
-    insert( $web, undef, "$web." );
-    my $tit = $web->eachTopic();
-    while ( $tit->hasNext() ) {
-        my $t = $tit->next();
-        my $topic = Foswiki::Meta->load( $session, $w, $t );
-        trace( 'Preloading topic ', $w, '/', $t ) if $TRACE{load};
-        insert( $topic, undef, "$web.$t" );
-    }
+=begin TML
 
-    my $wit = $web->eachWeb();
-    while ( $wit->hasNext() ) {
-        _preloadWeb( $w . '/' . $wit->next(), $session );
+---++ load( $meta, $reload )
+
+Load (or reload) the database from the backing store. If $meta is undef, it
+will reload the entire DB from the root. If it is a web, it will reload all
+topics in that web. If it is a topic, it will reload that topic.
+
+If $reload is true, it will unload the topic from the DB (if it's there) and
+load it from backing. Missing topics will be added.
+
+If reload is false, it will skip topics already in the DB.
+
+=cut
+
+sub load {
+    my ( $meta, $reload ) = @_;
+
+    _connect();
+
+    if ( $meta->topic() ) {
+        my $tids = _getTIDs($meta);
+        start();
+        if ( $tids && scalar(@$tids) ) {
+            return unless ($reload);
+            remove($meta);
+        }
+        insert($meta);
+        commit();
+    }
+    else {
+        my $wit = $meta->eachWeb();
+        while ( $wit->hasNext() ) {
+
+            # Load subweb
+            my $w = ( $meta->web ? $meta->web . '/' : '' ) . $wit->next();
+            print STDERR "Web $w\n";
+            my $wmo = Foswiki::Meta->load( $meta->session, $w );
+            load( $wmo, $reload );
+        }
+
+        my $tit = $meta->eachTopic();
+        while ( $tit->hasNext() ) {
+            my $t = $tit->next();
+            my $tmo = Foswiki::Meta->load( $meta->session, $meta->web, $t );
+            load( $tmo, $reload );
+        }
     }
 }
 
@@ -433,7 +460,7 @@ sub _findOrCreateTable {
             $schema->{$col} ||= '_DEFAULT';
         }
     }
-    trace( 'Creating fly table for ', $type ) if $TRACE{load};
+    trace( 'Creating fly table for ', $type ) if $TRACE{action};
     _createTable( $type, $schema );
 
     $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type} = $schema;
@@ -468,7 +495,7 @@ sub _findOrCreateColumn {
         $dbh->do($sql);
     }
 
-    trace( 'Added ', $type, '.', $col . ' to the schema' ) if $TRACE{load};
+    trace( 'Added ', $type, '.', $col . ' to the schema' ) if $TRACE{action};
 
     # _column will give us the default type if
     # the column name isn't matched
@@ -480,9 +507,9 @@ sub _findOrCreateColumn {
 =begin TML
 
 ---++ StaticMethod insert($meta [, $attachment])
-Insert an object into the database
+Insert an object (web or topic) into the database
 
-May throw an execption if SQL failed.
+May throw an exception if SQL failed.
 
 =cut
 
@@ -504,29 +531,23 @@ sub insert {
         if ( $personality->column_exists( 'FILEATTACHMENT', 'serialised' ) ) {
 
             # Pull in the attachment data
-            my $sql =
-                'SELECT tid FROM topic '
-              . "WHERE web='"
-              . site2utf( $mo->web() )
-              . " AND name='"
-              . site2utf( $mo->topic() ) . "'";
-            trace($sql) if $TRACE{sql};
-            my $tid = $dbh->selectrow_array($sql);
-            ASSERT($tid) if DEBUG;
+            my $tids = _getTIDs($mo);
+            ASSERT( scalar @$tids ) if DEBUG;
 
-       # TODO:
-       #           $dbh->do( 'UPDATE ' . $personality->safe_id('FILEATTACHMENT')
-       #                     . " SET serialised='$data'"
-       #                     . " WHERE tid='$tid' AND name='$attachment'" );
+            # TODO:
+            # $dbh->do( 'UPDATE ' . $personality->safe_id('FILEATTACHMENT')
+            #    . " SET serialised='$data'"
+            #    . " WHERE tid='$tid' AND name='$attachment'" );
         }
     }
     elsif ( $mo->topic() ) {
 
         # SMELL: concurrency? what if two topics are inserted at the same time?
         my $tid = $dbh->selectrow_array('SELECT MAX(tid) FROM topic')
-          || 0;
+          || 1;
         $tid++;
-        trace( "\tInsert ", $tid ) if $TRACE{load};
+        trace( 'Insert ', $mo->web, '.', $mo->topic, '@', $tid )
+          if $TRACE{action};
         my $text      = site2utf( $mo->text() );
         my $esf       = site2utf( $mo->getEmbeddedStoreForm() );
         my $webName   = site2utf( $mo->web() );
@@ -575,7 +596,7 @@ sub insert {
                 shift(@kns);
 
                 trace(
-                    $sql, ' [tid',
+                    $sql, ' [',
                     map {
                         (
                             ',',
@@ -622,58 +643,50 @@ sub remove {
 
     _connect();
 
-    my $webName = site2utf( $mo->web() );
+    my $tids = _getTIDs($mo);
+    return unless scalar @$tids;
 
-    if ( $mo->topic() ) {
-        my $topicName = site2utf( $mo->topic() );
-
-        my $sql = "SELECT tid FROM topic WHERE topic.web='" . $webName . "'";
-        $sql .= " AND topic.name='" . $topicName . "'";
-        trace($sql) if $TRACE{sql};
-        my $tids = $dbh->selectcol_arrayref($sql);
-        return unless scalar(@$tids);
-
+    foreach my $tid (@$tids) {
         if ( defined $attachment ) {
 
-            ASSERT( scalar(@$tids) == 1 ) if DEBUG;
-
+            # SMELL: theoretically possible to remove an attachment on
+            # all topics in a web?
             # Note that we DO NOT explicitly remove the META:FILEATTACHMENT
             # entry table here.
             # That is done at a much higher level in Foswiki::Meta when the
             # referring topic has it's meta-data rewritten.
 
-     #TODO: Here we simply clear down the raw data stored for the attachment.
-     #TODO: if ( $personality->column_exists( 'FILEATTACHMENT', 'serialised' ) )
-     #TODO: {
-     #TODO:     $sql = 'SELECT tid FROM topic '
-     #TODO:           . "WHERE web='"
-     #TODO:           . $webName
-     #TODO:           . "' AND name='"
-     #TODO:           . $topicName
-     #TODO:           . "'";
-     #TODO:     trace( $sql ) if $TRACE{sql};
-     #TODO:     my $tid = $dbh->selectrow_array( $sql );
-     #TODO:     ASSERT($tid) if DEBUG;
-
-        #TODO:
-        #TODO:     $dbh->do( 'UPDATE ' . $personality->safe_id('FILEATTACHMENT')
-        #TODO:                . " SET serialised=''"
-        #TODO:               . " WHERE tid='$tid' AND name='$attachment'" );
-        #TODO: }
+            #TODO: Here we simply clear down the raw data stored for the
+            # attachment.
+            #TODO: if ( $personality->column_exists( 'FILEATTACHMENT',
+            # 'serialised' ) )
+            #TODO: {
+            #TODO:     $sql = 'SELECT tid FROM topic '
+            #TODO:           . "WHERE web='"
+            #TODO:           . $webName
+            #TODO:           . "' AND name='"
+            #TODO:           . $topicName
+            #TODO:           . "'";
+            #TODO:     trace( $sql ) if $TRACE{sql};
+            #TODO:     my $tid = $dbh->selectrow_array( $sql );
+            #TODO:     ASSERT($tid) if DEBUG;
+            #TODO:
+            #TODO:     $dbh->do( 'UPDATE ' . $personality->safe_id(
+            # 'FILEATTACHMENT')
+            #TODO:       . " SET serialised=''"
+            #TODO:       . " WHERE tid='$tid' AND name='$attachment'" );
+            #TODO: }
         }
         else {
-
-            foreach my $tid (@$tids) {
-                trace( "\tRemove ", $tid ) if $TRACE{load};
-                my $tables =
-                  $dbh->selectcol_arrayref('SELECT name FROM metatypes');
-                foreach my $table ( 'topic', @$tables ) {
-                    if ( $personality->table_exists($table) ) {
-                        my $tn  = $personality->safe_id($table);
-                        my $sql = "DELETE FROM $tn WHERE tid='$tid'";
-                        trace($sql) if $TRACE{sql};
-                        $dbh->do($sql);
-                    }
+            trace( 'Remove ', $mo->web, '.', $mo->topic, '@', $tid )
+              if $TRACE{action};
+            my $tables = $dbh->selectcol_arrayref('SELECT name FROM metatypes');
+            foreach my $table ( 'topic', @$tables ) {
+                if ( $personality->table_exists($table) ) {
+                    my $tn  = $personality->safe_id($table);
+                    my $sql = "DELETE FROM $tn WHERE tid='$tid'";
+                    trace($sql) if $TRACE{sql};
+                    $dbh->do($sql);
                 }
             }
         }
@@ -728,7 +741,7 @@ sub query {
 =begin TML
 
 ---++ ObjectMethod reset($session)
-Reset the DB by dropping existing tables (if they exist) and preloading.
+Reset the DB by dropping existing tables (if they exist).
 
 =cut
 
