@@ -7,6 +7,8 @@ use strict;
 use warnings;
 use Assert;
 
+use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
+  BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 use Foswiki::Contrib::DBIStoreContrib::Personality ();
 our @ISA = ('Foswiki::Contrib::DBIStoreContrib::Personality');
 
@@ -84,6 +86,14 @@ EXCEPTION WHEN invalid_text_representation THEN
 END;
 $$ LANGUAGE PLPGSQL IMMUTABLE STRICT;
 DO
+}
+
+sub is_true {
+    my ( $this, $type, $sql ) = @_;
+
+    $type = STRING if $type == UNKNOWN;
+
+    return $this->SUPER::is_true( $type, $sql );
 }
 
 sub cast_to_numeric {

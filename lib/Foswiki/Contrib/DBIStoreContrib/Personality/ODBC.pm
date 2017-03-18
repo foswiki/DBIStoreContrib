@@ -1,16 +1,18 @@
 # See bottom of file for license and copyright information
 package Foswiki::Contrib::DBIStoreContrib::Personality::ODBC;
 
-# Personality module for MS SQL Server / Transact-SQL
+# Personality module for generic ODBC
 
 use strict;
 use warnings;
 
+use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
+  BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 use Foswiki::Contrib::DBIStoreContrib::Personality ();
 our @ISA = ('Foswiki::Contrib::DBIStoreContrib::Personality');
 
 # Use the database version this has been tested with
-our $VERSION = 'Microsoft SQL Server 2005 - 9.00.4035.00 Standard Edition';
+our $VERSION = 'ODBC';
 
 sub new {
     my ( $class, $dbistore ) = @_;
@@ -38,8 +40,8 @@ sub new {
     # Override the default type in the schema
     $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{_DEFAULT}{type} =
       'VARCHAR(MAX)';
-    $this->{true_value}      = 'CAST(1 AS BIT)';
-    $this->{true_type}       = Foswiki::Contrib::DBIStoreContrib::PSEUDO_BOOL;
+    $this->{true_value}      = '(1=1)';    #'CAST(1 AS BIT)';
+    $this->{true_type}       = BOOLEAN;    #PSEUDO_BOOL;
     $this->{requires_COMMIT} = 0;
 
     return $this;
@@ -48,65 +50,14 @@ sub new {
 sub startup {
     my ( $this, $dbh ) = @_;
     $this->SUPER::startup($dbh);
-
-    $this->{dbh}->do('set QUOTED_IDENTIFIER ON');
-
-    # There's no way in T-SQL to conditionally create a function
-    # without using dynamic SQL, so we have to do this the hard way.
-    my $exists = $this->{dbh}->do(<<'SQL');
-SELECT 1 WHERE OBJECT_ID('dbo.foswiki_CONVERT') IS NOT NULL
-SQL
-    if ( $exists == 0 ) {
-
-        # Error-tolerant number conversion. Works like perl.
-        $this->{dbh}->do(<<'SQL');
-CREATE FUNCTION foswiki_CONVERT( @value VARCHAR(MAX) ) RETURNS FLOAT AS
- BEGIN
-  IF @value LIKE '%[^-+0-9eE]%' RETURN 0
-  IF NOT ( @value LIKE '[0-9]%' OR @value LIKE '[-+][0-9]%') RETURN 0
-  -- definitely have a number; just need to find the end
-  DECLARE @s INT
-  DECLARE @ss VARCHAR(2)
-  SET @s = 1
-  IF @value LIKE '[-+]%' SET @s = 2
-  SET @ss = SUBSTRING(@value, @s, 2)
-  WHILE @ss LIKE '[0-9]%'
-   BEGIN
-    SET @s = @s + 1
-    SET @ss = SUBSTRING(@value, @s, 2);
-   END
-  IF @ss LIKE '.[0-9eE]'
-   BEGIN -- fractional part
-    SET @s = @s + 1;
-    WHILE SUBSTRING(@value, @s, 1) LIKE '[0-9]' SET @s = @s + 1
-    SET @ss = SUBSTRING(@value, @s, 2);
-   END
-  IF @ss LIKE '[eE][-+0-9]'
-   BEGIN --- exponent
-    SET @s = @s + 2; -- skip e and sign or first digit
-    WHILE SUBSTRING(@value, @s, 1) LIKE '[0-9]' SET @s = @s + 1
-   END
-  IF @s <= DATALENGTH(@value) RETURN 0
-  RETURN CONVERT(FLOAT, @value)
- END
-SQL
-    }
 }
 
-sub cast_to_numeric {
-    my ( $this, $d ) = @_;
-    return "dbo.foswiki_CONVERT($d)";
-}
+sub is_true {
+    my ( $this, $type, $sql ) = @_;
 
-sub regexp {
-    my ( $this, $lhs, $rhs ) = @_;
+    $type = STRING if $type == UNKNOWN;
 
-    unless ( $rhs =~ s/^'(.*)'$/$1/s ) {
-        return "dbo.fn_RegExIsMatch($lhs,$rhs,1)=1";    # risky!
-    }
-    $rhs =~ s/\\/\\\\/g;
-
-    return "dbo.fn_RegExIsMatch($lhs,'$rhs',1)=1";
+    return $this->SUPER::is_true( $type, $sql );
 }
 
 sub length {
@@ -134,7 +85,7 @@ Author: Crawford Currie http://c-dot.co.uk
 
 Module of Foswiki - The Free and Open Source Wiki, http://foswiki.org/, http://Foswiki.org/
 
-Copyright (C) 2013-2014 Foswiki Contributors. All Rights Reserved.
+Copyright (C) 2013-2017 Foswiki Contributors. All Rights Reserved.
 Foswiki Contributors are listed in the AUTHORS file in the root
 of this distribution. NOTE: Please extend that file, not this notice.
 

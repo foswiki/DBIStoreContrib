@@ -76,15 +76,24 @@ sub personality {
     unless ($personality) {
 
         # Custom code to put DB's into ANSI mode and clean up error reporting
-        $Foswiki::cfg{Extensions}{DBIStoreContrib}{DSN} =~ /^dbi:(.*?):/i;
-        my $module = "Foswiki::Contrib::DBIStoreContrib::Personality::$1";
+        $personality = $Foswiki::cfg{Extensions}{DBIStoreContrib}{Personality};
 
-        eval "require $module";
+        # If an explicit personality isn't given, try and guess it from the
+        # DSN
+        if (  !$personality
+            && $Foswiki::cfg{Extensions}{DBIStoreContrib}{DSN} =~
+            /^dbi:(.*?):/i )
+        {
+            $personality = "Foswiki::Contrib::DBIStoreContrib::Personality::$1";
+        }
+
+        eval "require $personality";
         if ($@) {
             trace($@);
-            die "Failed to load personality module $module";
+            die "Failed to load personality module $personality";
         }
-        $personality = $module->new();
+        trace( 'Using ', $personality ) if $TRACE{action};
+        $personality = $personality->new();
     }
     return $personality;
 }

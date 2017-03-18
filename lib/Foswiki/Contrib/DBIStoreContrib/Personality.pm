@@ -304,7 +304,7 @@ sub is_true {
         # to false.
         return "($sql)!=''";
     }
-    else {    # $type == BOOLEAN
+    else {    # $type == BOOLEAN or UNKNOWN
         return $sql;
     }
 }
