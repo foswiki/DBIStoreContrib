@@ -12,6 +12,12 @@ $Foswiki::cfg{Extensions}{DBIStoreContrib}{Username} = '';
 # **STRING 80**
 # Password to use to connect to the database.
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{Password} = '';
+# **PERL**
+# Default attributes to pass to the DBI->connect call that connects to your
+# database. You may need to customise these for your specific install,
+# depending on the data types used in your schema. Search Google for
+# "DBI Connect Attributes" for more details.
+$Foswiki::cfg{Extensions}{DBIStoreContrib}{Connect} = { RaiseError => 1, AutoCommit => 1 };
 # **STRING 80**
 # Plugin module name (required on Foswiki 1.1 and earlier)
 $Foswiki::cfg{Plugins}{DBIStorePlugin}{Module} = 'Foswiki::Plugins::DBIStorePlugin';

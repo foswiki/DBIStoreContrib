@@ -92,7 +92,7 @@ Basic tests for queries can be found in the Sandbox.DBIStoreTest topic.
 ---+++ Reloading the database
 
 It may become necessary to reload the DBI database - for example, because
-changes to topics have been made outside of Foswiki. You are recommended to use
+changes to topics have been made outside of Foswiki. You can use
 =tools/dbistore_manage.pl= to do this.
 <verbatim>
 $ cd bin
@@ -101,8 +101,6 @@ $ perl ../tools/dbistore_manage.pl --help
 for more information on resetting the entire database or updating individual
 topics. This program also allows you to run Foswiki search queries against
 the database.
-
-You can also use the plugin to update topics or reset the entire DB. The Sandbox.DBIStoreTest topic contains links that show you how to do this. Only admins can reset the entire DB.
 
 ---+++ Unknown meta-data *EXPERT*
 

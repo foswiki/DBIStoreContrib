@@ -5,29 +5,10 @@
 # cd to the tools directory to run it
 
 use strict;
+use FindBin;
+use lib "$FindBin::Bin/../bin";
 
 BEGIN {
-
-    sub setlibOnPath {
-        foreach my $dir (@INC) {
-            return 1 if ( -e "$dir/setlib.cfg" );
-        }
-        return 0;
-    }
-
-    unless ( setlibOnPath() ) {
-        if ( defined $ENV{FOSWIKI_HOME} ) {
-            unshift @INC, "$ENV{FOSWIKI_HOME}/bin";
-            unless ( setlibOnPath() ) {
-                unshift @INC, '../bin';
-                unless ( setlibOnPath() ) {
-                    print STDERR
-"Can't locate setlib.cfg. Trying setting \%FOSWIKI_HOME or passing -I to perl\n";
-                    exit 1;
-                }
-            }
-        }
-    }
     do 'setlib.cfg';
 }
 
@@ -41,8 +22,8 @@ use Foswiki::Meta ();
 my @traces;
 my @loads;
 my @reloads;
-my @sqls;
-my @queries;
+my $sql;
+my $query;
 my $reset;
 my $web;
 my $topic;
@@ -52,8 +33,8 @@ my $result = Getopt::Long::GetOptions(
     'reset'    => \$reset,
     'reload=s' => \@reloads,
     'load=s'   => \@loads,
-    'sql=s'    => \@sqls,
-    'query=s'  => \@queries,
+    'sql:s'    => \$sql,
+    'query:s'  => \$query,
     'topic=s'  => \$topic,
     'help'     => sub {
         if ( $ARGV[0] eq 'trace' ) {
@@ -133,25 +114,33 @@ if ($topic) {
 }
 
 # Foswiki query
-if ( scalar(@queries) ) {
+if ( defined $query ) {
+    unless ($query) {
+        while (<>) {
+            $query .= $_;
+        }
+    }
     require Foswiki::Contrib::DBIStoreContrib::HoistSQL;
     my $meta = Foswiki::Meta->new( $fw, $web, $topic );
-    foreach my $q (@queries) {
-        my $query =
-          $Foswiki::Plugins::SESSION->search->parseSearch( $q,
-            { type => 'query' } );
-        my $sql = Foswiki::Contrib::DBIStoreContrib::HoistSQL::hoist($query);
-        $sql = "SELECT web,name FROM topic WHERE $sql";
-        $sql .= " AND name='$topic'" if $topic;
-        $sql .= " AND web='$web'"    if $web;
-        push( @sqls, $sql );
-    }
+    $query =
+      $Foswiki::Plugins::SESSION->search->parseSearch( $query,
+        { type => 'query' } );
+    $sql = Foswiki::Contrib::DBIStoreContrib::HoistSQL::hoist($query);
+    $sql = "SELECT web,name FROM topic WHERE $sql";
+    $sql .= " AND name='$topic'" if $topic;
+    $sql .= " AND web='$web'"    if $web;
+
     $opsDone++;
 }
 
 # SQL query
-foreach my $q (@sqls) {
-    my $sth = Foswiki::Contrib::DBIStoreContrib::query($q);
+if ( defined $sql ) {
+    unless ($sql) {
+        while (<>) {
+            $sql .= $_;
+        }
+    }
+    my $sth = Foswiki::Contrib::DBIStoreContrib::query($sql);
     $sth->dump_results();
     $opsDone++;
 }
@@ -200,11 +189,6 @@ options as you want.
 
 C<--reload *> can be used to reload all topics in the store.
 
-=item B<--sql> SQL
-
-Execute the given SQL query over the DB, and report the result.
-You can give as many C<--sql> options as you want.
-
 =item B<--topic> topic
 
 Set the topic for Foswiki queries (wildcards are *not* supported. If not
@@ -213,7 +197,14 @@ given, queries are executed over the entire database).
 =item B<--query> TML query
 
 Execute the given TML query (over the C<--topic> if given), and report the
-result. You can give as many C<--query> options as you want.
+result. Only one of C<--query> or C<--sql> may be given. If you don't specify
+a query then the query will be read from standard input.
+
+=item B<--sql> SQL
+
+Execute the given SQL query over the DB, and report the result.
+Only one of C<--query> or C<--sql> may be given. If you con't specify a SQL
+string then the SQL will be read from standard input.
 
 =item B<--trace>
 
