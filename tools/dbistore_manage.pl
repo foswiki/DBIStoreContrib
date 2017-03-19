@@ -127,8 +127,8 @@ if ( defined $query ) {
         { type => 'query' } );
     $sql = Foswiki::Contrib::DBIStoreContrib::HoistSQL::hoist($query);
     $sql = "SELECT web,name FROM topic WHERE $sql";
-    $sql .= " AND name='$topic'" if $topic;
-    $sql .= " AND web='$web'"    if $web;
+    $sql .= " AND name LIKE '$topic'" if $topic;
+    $sql .= " AND web LIKE '$web'"    if $web;
 
     $opsDone++;
 }

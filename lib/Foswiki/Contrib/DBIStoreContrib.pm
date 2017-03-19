@@ -36,7 +36,7 @@ our %TRACE = (
 
 require Exporter;
 our @ISA       = qw(Exporter);
-our @EXPORT_OK = qw(%TRACE trace site2utf utf2site
+our @EXPORT_OK = qw(%TRACE trace personality site2utf utf2site
   NAME NUMBER STRING UNKNOWN BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 
 our $SHORTDESCRIPTION = 'Use DBI to implement a store using an SQL database.';
@@ -541,7 +541,7 @@ sub insert {
 
             # Pull in the attachment data
             my $tids = _getTIDs($mo);
-            ASSERT( scalar @$tids ) if DEBUG;
+            ASSERT( $tids && scalar @$tids ) if DEBUG;
 
             # TODO:
             # $dbh->do( 'UPDATE ' . $personality->safe_id('FILEATTACHMENT')
@@ -653,7 +653,7 @@ sub remove {
     _connect();
 
     my $tids = _getTIDs($mo);
-    return unless scalar @$tids;
+    return unless $tids && scalar @$tids;
 
     foreach my $tid (@$tids) {
         if ( defined $attachment ) {

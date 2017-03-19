@@ -6,6 +6,8 @@ package Foswiki::Contrib::DBIStoreContrib::Personality::TransactSQL;
 use strict;
 use warnings;
 
+use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
+  BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 use Foswiki::Contrib::DBIStoreContrib::Personality ();
 our @ISA = ('Foswiki::Contrib::DBIStoreContrib::Personality');
 
@@ -15,12 +17,6 @@ our $VERSION = 'Microsoft SQL Server 2005 - 9.00.4035.00 Standard Edition';
 sub new {
     my ( $class, $dbistore ) = @_;
     my $this = $class->SUPER::new($dbistore);
-    return $this;
-}
-
-sub startup {
-    my ( $this, $dbh ) = @_;
-    $this->SUPER::startup($dbh);
 
     $this->reserve(
         qw/
@@ -42,14 +38,21 @@ sub startup {
           VARYING VIEW WAITFOR WHILE WITHIN GROUP WRITETEXT/
     );
 
-    #$this->{true_value}      = 'CAST(1 AS BIT)';
-    #$this->{true_type}       = PSEUDO_BOOL;
+    $this->{true_value} = 'CAST(1 AS BIT)';
+    $this->{true_type}  = PSEUDO_BOOL;
 
     # Override the default type in the schema
     $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{_DEFAULT}{type} =
       'VARCHAR(MAX)';
 
     $this->{requires_COMMIT} = 0;
+
+    return $this;
+}
+
+sub startup {
+    my ( $this, $dbh ) = @_;
+    $this->SUPER::startup($dbh);
 
     $this->{dbh}->do('set QUOTED_IDENTIFIER ON');
 
