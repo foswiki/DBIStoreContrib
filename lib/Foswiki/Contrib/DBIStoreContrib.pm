@@ -742,6 +742,7 @@ sub query {
     my $sql = shift;
 
     _connect();
+    trace($sql) if $TRACE{action};
     my $sth = $dbh->prepare($sql);
     $sth->execute();
     return $sth;

@@ -1,5 +1,5 @@
 # See bottom of file for license and copyright information
-package Foswiki::Contrib::DBIStoreContrib::Personality::Pg;
+package Foswiki::Contrib::DBIStoreContrib::Personality::PostgreSQL;
 
 # DBIStoreContrib personality module for Postgresql
 
