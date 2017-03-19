@@ -251,8 +251,8 @@ my %bop_map = (
         return ( $expr, BOOLEAN );
     },
     '=~' => sub {
-        my ( $lhs, $lhst, $rhs, $rhst ) = @_;
-        my $expr = personality->regexp( $lhs, $rhs );
+        my ( $sexpr, $lhst, $pat, $rhst ) = @_;
+        my $expr = personality->regexp( $sexpr, $pat );
         return ( $expr, BOOLEAN );
     },
 

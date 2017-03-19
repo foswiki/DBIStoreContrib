@@ -107,20 +107,20 @@ sub _char {
 }
 
 sub regexp {
-    my ( $this, $lhs, $rhs ) = @_;
+    my ( $this, $sexpr, $pat ) = @_;
 
-    unless ( $rhs =~ s/^'(.*)'$/$1/s ) {
-        return "$lhs ~ $rhs";    # risky!
+    unless ( $pat =~ s/^'(.*)'$/$1/s ) {
+        return "$sexpr ~ $pat";    # risky!
     }
 
-    my $i = ( $rhs =~ s/^\(\?i:(.*)\)$/$1/s ) ? '*' : '';
+    my $i = ( $pat =~ s/^\(\?i:(.*)\)$/$1/s ) ? '*' : '';
 
-    $rhs =~ s/\\x([0-9a-f]{2})/_char("0x$1")/gei;
-    $rhs =~ s/\\x{([0-9a-f]+)}/_char("0x$1")/gei;
+    $pat =~ s/\\x([0-9a-f]{2})/_char("0x$1")/gei;
+    $pat =~ s/\\x{([0-9a-f]+)}/_char("0x$1")/gei;
 
     # Postgresql supports full POSIX regexes.
 
-    return "$lhs ~$i '$rhs'";
+    return "$sexpr ~$i '$pat'";
 }
 
 sub length {

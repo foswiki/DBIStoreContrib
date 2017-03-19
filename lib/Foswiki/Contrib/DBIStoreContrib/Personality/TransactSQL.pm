@@ -131,14 +131,15 @@ sub cast_to_numeric {
 }
 
 sub regexp {
-    my ( $this, $lhs, $rhs ) = @_;
+    my ( $this, $sexpr, $pat ) = @_;
 
-    unless ( $rhs =~ s/^'(.*)'$/$1/s ) {
-        return "dbo.fn_RegExIsMatch($lhs,$rhs,1)=1";    # risky!
+# See https://www.codeproject.com/Articles/19502/A-T-SQL-Regular-Expression-Library-for-SQL-Server
+    unless ( $pat =~ s/^'(.*)'$/$1/s ) {
+        return "dbo.fn_RegExIsMatch($sexpr,$pat,1)=1";    # risky!
     }
-    $rhs =~ s/\\/\\\\/g;
+    $pat =~ s/\\\\/\\/g;
 
-    return "dbo.fn_RegExIsMatch($lhs,'$rhs',1)=1";
+    return "dbo.fn_RegExIsMatch($sexpr,'$pat',1)=1";
 }
 
 1;
