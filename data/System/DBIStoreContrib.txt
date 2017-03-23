@@ -29,12 +29,22 @@ Note however that there are many different versions of these databases and
 compatibility with any given version cannot be guaranteed.
 
 ---++ Database Schema
-The database schema reflects 1:1 the schema of Foswiki topics. The following
-tables exist by default:
+The database schema must reflect 1:1 the structure of data in Foswiki topics.
+
+The schema is defined using a Perl hash structure. Top level keys in this hash represent:
+   * The name of a _column type declaration_, if the key starts with an underscore e.g. =_DATE=
+      * column type names map to a hash defining a column, as described below
+   * The name of a table
+      * table names map to a hash defining the columns in each row of the table
+         * Each column name maps to a hash defining the column
+         * column names can also map to the name of a _column type declaration_ e.g. =_DATE=.
+
+---+++ Declaring tables
+Some basic tables must always exist in the schema:
 
 =topic= %BR%
-Contains all wiki topics. 
-   * =tid= - this column contains a numeric identifier that uniquely identifies the topic
+Contains all wiki topics.
+
    * =web= - the web name
    * =name= - the topic name
    * =text= - the full text of the topic, without embedded meta-data
@@ -44,8 +54,76 @@ Contains all wiki topics.
 Contains the names of all meta-tables.
    * =name= - table name, e.g. =TOPICINFO=, =FORM= etc
 
-The full schema, including the types used to represent different data can
-be found in =configure= under the settings for the Extension.
+Other tables are used for different types of Foswiki =%<nop>META:= - for example, the table =TOPICINFO= corresponds to the =%<nop>META:TOPICINFO= found at the top of all (raw) topics. Each column in these tables corresponds to an attribute in the corresponding =%<nop>META:=.
+
+---+++ Automatically extending the schema
+The schema should normally specify a table for every =%<nop>META:= that may
+occur in topics. This works so long as you know what meta-data will be added
+by the plugins you use. If you don't know, you can optionally specify that
+new tables are automatically added by setting ={AutoloadUnknownMETA}= in
+=configure.
+
+Normally only columns defined in the schema are loaded. Columns can be
+automatically added for attributes missing from the schema by setting ={AutoAddUnknownFields}= in configure. Automatically added columns will be given the type specified by the =_DEFAULT= column type declaration.
+
+Note that it is always best to make sure all meta-data has a schema entry. Automatic extension of the schema is relatively expensive, and should be avoided if possible.
+
+---+++ Defining columns
+Each row in each table always has a =tid= column, which must be an integer
+type. This column is used to associate the row with a row in the =topic=
+table (and meta-data in other tables).
+
+Columns are defined in a Perl hash containing attributes: 
+   * =type= (required) specifies the SQL type for the column
+   * =basetype= optionally specifies a column type declaration to base this type on (local attributes override those in the base type)
+   * =index= if true, then an index will be created for the column
+   * =truncate_to= if set to a length, then the value of that field
+    stored in the DB will be truncated to that length. This only affects
+    searching. If =truncate=_to is not set, then trying to store a value
+    longer than the field accepts will be an error.
+   * =unique= may be set to the name of a uniqueness constraint (see below)
+   * =primary= if true, the column will be the PRIMARY KEY for the table.
+    This automatically enforces a uniqueness constraint on the column.
+
+For example,
+<verbatim>
+  _INDEXED => { type => 'INT', index => 1, unique => 'smatter' },
+  ...
+  SOMEDATA => {
+    attr => { basetype => '_INDEXED', type=> 'TEXT', truncate_to => 20 }
+  }
+</verbatim>
+will give a column type of
+<verbatim>
+{ type => 'TEXT', index => 1, unique => 'smatter', truncate_to => 20 }
+</verbatim>
+
+---++++ Uniqueness constraints
+The =unique= column attribute is used to specify what _unique-set_ the
+column belongs to. Unique-sets force each value of a column (or
+the combined values of a set of a group of columns) to be unique in the table.
+There may be more than one unique-set in a single table. For example,
+
+<verbatim>
+    topic => {
+        ...
+        web  => { type => 'VARCHAR(256)', index => 1, unique => 'webtopic' },
+        name => { type => 'VARCHAR(128)', index => 1, unique => 'webtopic' },
+        ...
+        },
+</verbatim>
+specifies the unique-set =webtopic= on both =web= and =name= columns. The
+database will enforce the constraint that no two rows can have the same =web= and =topic= (but two rows can have the same =web=, so long as the =topic= is different, or the same =topic=, so long as the =web= is different). Note that =primary= columns are automatically unique and don't need a =unique= attribute.
+
+---++++ =_DEFAULT=
+The column type declaration =_DEFAULT= must exist and must be a text type,
+ideally supporting arbitrary length text strings. Possible types are TEXT
+for Postgresql, SQLite and MySQL, and VARCHAR(MAX) for SQL Server.
+
+---++++ SQL Types
+Different database implementations have different requirements for the
+best types to use with that database, so the schema has to be tailored for the
+specific database being used. See http://foswiki.org/Support/DBIStoreContribSchemas for more information.
 
 ---++ Search Limitations
 ---+++ Regular Expressions
