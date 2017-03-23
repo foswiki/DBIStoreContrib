@@ -348,6 +348,26 @@ sub _truncate {
     return substr( $data, 0, $size - 3 ) . '...';
 }
 
+# Expand the basetype in a schema column definition. This rewrites the
+# schema so it doesn't have to be done more than once for each type.
+sub _basetype {
+    my $col = shift;
+    return $col unless defined $col->{basetype};
+    my $ctd =
+      $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{ $col->{basetype} };
+    unless ($ctd) {
+        Foswiki::Func::writeWarning( 'No such basetype ' . $col->{basetype} );
+        return $col;
+    }
+
+    while ( my ( $k, $v ) = each %$ctd ) {
+
+        # Local definition overrides template
+        $col->{$k} = $v unless defined $col->{$k};
+    }
+    delete $col->{basetype};
+}
+
 # Get the column schema for the given column.
 sub _column {
     my ( $table, $column ) = @_;
@@ -355,14 +375,14 @@ sub _column {
     my $t = $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$table};
     if ( ref($t) ) {
         my $c = $t->{$column};
-        return $c if ref($c);
+        return _basetype($c) if ref($c);
 
         # If the type name starts with an underscore, map to a top-level
         # type name
         if ( $c && $c =~ /^_/ ) {
             $c = $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$c};
-            return $c if ref($c);
         }
+        return _basetype($c) if ref($c);
     }
     Foswiki::Func::writeWarning(
         "DBIStoreContrib: Could not determine a type for $table.$column")
