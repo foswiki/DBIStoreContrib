@@ -61,7 +61,6 @@ sub new {
           XMLATTRIBUTES XMLCONCAT XMLELEMENT XMLEXISTS XMLFOREST XMLPARSE XMLPI
           XMLROOT XMLSERIALIZE YEAR YES ZONE/
     );
-    $this->{requires_COMMIT} = 0;    # AUTOCOMMIT is on
 
     return $this;
 }

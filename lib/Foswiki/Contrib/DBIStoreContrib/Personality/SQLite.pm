@@ -52,25 +52,13 @@ SQL
     return scalar(@rows);
 }
 
-sub column_exists {
-    my ( $this, $table, $column ) = @_;
-    my $sql = <<SQL;
-PRAGMA table_info($table)
-SQL
-    my $rows = $this->{dbh}->selectall_arrayref($sql);
-    foreach my $i (@$rows) {
-        return 1 if ( $i->[1] eq $column );
-    }
-    return 0;
-}
-
 sub get_columns {
     my ( $this, $table, $column ) = @_;
     my $sql = <<SQL;
 PRAGMA table_info($table)
 SQL
     my $rows = $this->{dbh}->selectall_arrayref($sql);
-    return map { $_->[1] } @$rows;
+    return { map { $_->[1] => $_->[2] } @$rows };
 }
 
 sub regexp {

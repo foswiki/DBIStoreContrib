@@ -25,7 +25,7 @@ use Assert;
 use Encode;
 
 use Foswiki::Meta ();
-use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace);
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace insert remove);
 
 # @ISA not used directly, as it's set by the processing of the {ImplementationClasses}
 # in 1.2+, and is irrelevant to 1.1-
@@ -66,28 +66,19 @@ sub recordChange {
     trace( $args{verb} . join( ',', keys(%args) ) ) if $TRACE{updates};
 
     if ( $args{verb} eq 'remove' ) {
-        Foswiki::Contrib::DBIStoreContrib::start();
-        Foswiki::Contrib::DBIStoreContrib::remove( $args{oldmeta},
-            $args{oldattachment} );
-        Foswiki::Contrib::DBIStoreContrib::commit();
+        remove( $args{oldmeta}, $args{oldattachment} );
     }
     elsif ( $args{verb} eq 'insert' ) {
-        Foswiki::Contrib::DBIStoreContrib::insert( $args{newmeta},
-            $args{newattachment} );
+        insert( $args{newmeta}, $args{newattachment} );
     }
     elsif ( $args{verb} eq 'update' ) {
-        Foswiki::Contrib::DBIStoreContrib::start();
-        Foswiki::Contrib::DBIStoreContrib::remove( $args{oldmeta},
-            $args{oldAttachment} );
+        remove( $args{oldmeta}, $args{oldAttachment} );
         if ( $args{newmeta} ) {
-            Foswiki::Contrib::DBIStoreContrib::insert( $args{newmeta},
-                $args{newattachment} );
+            insert( $args{newmeta}, $args{newattachment} );
         }
         else {
-            Foswiki::Contrib::DBIStoreContrib::insert( $args{oldmeta},
-                $args{oldattachment} );
+            insert( $args{oldmeta}, $args{oldattachment} );
         }
-        Foswiki::Contrib::DBIStoreContrib::commit();
     }
 }
 

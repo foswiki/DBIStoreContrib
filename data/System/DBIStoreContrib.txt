@@ -117,8 +117,8 @@ database will enforce the constraint that no two rows can have the same =web= an
 
 ---++++ =_DEFAULT=
 The column type declaration =_DEFAULT= must exist and must be a text type,
-ideally supporting arbitrary length text strings. Possible types are TEXT
-for Postgresql, SQLite and MySQL, and VARCHAR(MAX) for SQL Server.
+ideally supporting arbitrary length text strings, if either of the ={AutoloadUnknownMETA}= or
+={AutoAddUnknownFields}= options are enabled in =configure=.
 
 ---++++ SQL Types
 Different database implementations have different requirements for the
@@ -163,32 +163,23 @@ The =length()= operator only works on string data, not on tables.
       1 Select =Foswiki::Store::QueryAlgorithms::DBIStoreContrib= for the ={Store}{QueryAlgorithm}= *EXPERT* setting
       1 Select =Foswiki::Store::SearchAlgorithms::DBIStoreContrib= for the ={Store}{SearchAlgorithm}= setting
 
----+++ Testing
+---+++ Loading the database
 
-Basic tests for queries can be found in the Sandbox.DBIStoreTest topic.
-
----+++ Reloading the database
-
-It may become necessary to reload the DBI database - for example, because
-changes to topics have been made outside of Foswiki. You can use
+It is necessary to initialise the database from the existing store. You can use
 =tools/dbistore_manage.pl= to do this.
 <verbatim>
 $ cd bin
 $ perl ../tools/dbistore_manage.pl --help
 </verbatim>
-for more information on resetting the entire database or updating individual
-topics. This program also allows you to run Foswiki search queries against
-the database.
+for more information on resetting the entire database or loading or updating individual
+topics (for example, if a program outside Foswiki changes the store).
 
----+++ Unknown meta-data *EXPERT*
+The =dbistore_manage.pl= program also allows you to run Foswiki search queries and SQL
+statements against the database from the command-line.
 
-Normally the module will only record recognised meta-data in the database,
-and so make it accessible for searching. "Recognised" meta-data is meta-data
-created by the core and by plugins that use the =Foswiki::Func::registerMETA=
-method to announce meta-data to the system. In exceptional circumstances you
-can override this behaviour by setting the ={Extensions}{DBIStoreContrib}{AutoloadUnknownMETA}= control in =configure=. This will cause *all* meta-data to be
-recorded in the database, even if the plugin which is supposed to register
-it is missing, broken, or simply too old to do the right thing.
+---+++ Testing
+
+Basic tests for queries can be found in the Sandbox.DBIStoreTest topic.
 
 ---+++ !MySQL Notes
 The !MySQL database user needs at least the following privileges:

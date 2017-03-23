@@ -20,15 +20,7 @@ use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
 
 {true_value} and {true_type} For DB's that
 don't support a true BOOLEAN type, the true_type can be PSEUDO_BOOL,
-in which case boolean operations on the data will always be preceded
-by =1.
-
-{text_type} the name of the TEXT type, used to store variable-length
-strings.
-
-{requires_COMMIT} is 1 if the DB requires a COMMIT at the end of the
-initial transaction.
-The default is TRUE which works for SQLite, MySQL and Postgresql.
+in which case boolean operations on the data will always use =1.
 
 =cut
 
@@ -38,10 +30,6 @@ sub new {
         {
             dbh => undef,    # Set in startup
 
-            # If the DB is running *without* auto-commit enabled, then this
-            # is required.
-            requires_COMMIT => 0,
-
             # A DB with native BOOLEAN can use a simple boolean expression
             # here. Without BOOLEAN support a more convoluted route is
             # required.
@@ -49,7 +37,7 @@ sub new {
 
             # If the DB has a native BOOLEAN type this is BOOLEAN. If it
             # has to use a BIT value, this will be PSEUDO_BOOL.
-            true_type => Foswiki::Contrib::DBIStoreContrib::BOOLEAN,
+            true_type => BOOLEAN,
 
             # Numeric shadow columns? If true, generate a FLOAT column
             # for each META: column, and do a perl data conversion of
@@ -122,27 +110,8 @@ SQL
 
 =begin TML
 
----+ column_exists(table_name, column_name) -> boolean
-Determine if a column exists
-
-=cut
-
-sub column_exists {
-    my ( $this, $table, $column ) = @_;
-    ASSERT( $this->{dbh} ) if DEBUG;
-
-    # MySQL, Postgresql, MS SQL Server
-    my $sql = <<SQL;
-SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
- WHERE TABLE_NAME = '$table' AND COLUMN_NAME = '$column'
-SQL
-    return $this->{dbh}->selectrow_arrayref($sql);
-}
-
-=begin TML
-
----+ get_columns(table_name) -> @list
-Get a list of column names for the given table
+---+ get_columns(table_name) -> %cols
+Get a map of column names to type for the given table
 
 =cut
 
@@ -152,10 +121,11 @@ sub get_columns {
 
     # MySQL, Postgresql, MS SQL Server
     my $sql = <<SQL;
-SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS 
  WHERE TABLE_NAME = '$table'
 SQL
-    return @{ $this->{dbh}->selectcol_arrayref($sql) };
+    my $s = $this->{dbh}->selectcol_arrayref($sql);
+    return { map { ( $_->[0] => $_->[1] ) } @$s };
 }
 
 =begin TML

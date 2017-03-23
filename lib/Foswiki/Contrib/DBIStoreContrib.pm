@@ -35,8 +35,9 @@ our %TRACE = (
 );
 
 require Exporter;
-our @ISA       = qw(Exporter);
-our @EXPORT_OK = qw(%TRACE trace personality site2utf utf2site
+our @ISA = qw(Exporter);
+our @EXPORT_OK =
+  qw(%TRACE trace personality site2utf utf2site insert remove rename
   NAME NUMBER STRING UNKNOWN BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 
 our $SHORTDESCRIPTION = 'Use DBI to implement a store using an SQL database.';
@@ -229,6 +230,7 @@ sub _createTable {
         # resolve pseudo-type
         $cschema = $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$cschema}
           unless ( ref($cschema) );
+        _basetype($cschema);
         my $s = $personality->safe_id($cname) . ' ' . $cschema->{type};
         if ( $cschema->{primary} ) {
             $s .= ' PRIMARY KEY';
@@ -294,7 +296,6 @@ sub _createTables {
         trace( 'Creating table for ', $name ) if $TRACE{action};
         _createTable( $name, $schema );
     }
-    commit();
 }
 
 # Determine if the web or topic represented by $meta is present in the DB.
@@ -332,13 +333,11 @@ sub load {
 
     if ( $meta->topic() ) {
         my $tids = _getTIDs($meta);
-        start();
         if ( $tids && scalar(@$tids) ) {
             return unless ($reload);
             remove($meta);
         }
         insert($meta);
-        commit();
     }
     else {
         my $wit = $meta->eachWeb();
@@ -388,13 +387,18 @@ sub _truncate {
 # schema so it doesn't have to be done more than once for each type.
 sub _basetype {
     my $col = shift;
+
     return $col unless defined $col->{basetype};
+
     my $ctd =
       $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{ $col->{basetype} };
+
     unless ($ctd) {
         Foswiki::Func::writeWarning( 'No such basetype ' . $col->{basetype} );
         return $col;
     }
+
+    $ctd = _basetype($ctd);    # recursive expansion
 
     while ( my ( $k, $v ) = each %$ctd ) {
 
@@ -402,6 +406,7 @@ sub _basetype {
         $col->{$k} = $v unless defined $col->{$k};
     }
     delete $col->{basetype};
+    return $col;
 }
 
 # Get the column schema for the given column.
@@ -426,20 +431,6 @@ sub _column {
     return $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{_DEFAULT};
 }
 
-sub start {
-
-    # Start a transaction
-}
-
-sub commit {
-
-    # Commit a transaction if required
-    if ( $personality->{requires_COMMIT} ) {
-        trace('COMMIT') if $TRACE{sql};
-        $dbh->do('COMMIT');
-    }
-}
-
 # PACKAGE PRIVATE support forced disconnection when a store shim is decoupled.
 sub disconnect {
     if ($dbh) {
@@ -452,10 +443,10 @@ sub disconnect {
 sub _findOrCreateTable {
     my ( $type, $mo ) = @_;
 
-    my $schema = $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type};
+    my $tableSchema = $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type};
 
     # Make sure it's registered, or we are auto-extending the schema
-    return $schema if $schema;
+    return $tableSchema if $tableSchema;
 
     return undef
       unless ( $Foswiki::cfg{Extensions}{DBIStoreContrib}{AutoloadUnknownMETA}
@@ -464,20 +455,22 @@ sub _findOrCreateTable {
     # The table is not in the schema. Is it in the DB?
     if ( $personality->table_exists($type) ) {
 
-        # Table is in the DB; pull the column names from there
-        # and add them to the schema
-        $schema = { map { $_ => '_DEFAULT' } $personality->get_columns($type) };
-        $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type} = $schema;
+        # Table is in the DB; pull the column names and types from there
+        # and add them to the schema so we don't go through this next time
+        my $cols = $personality->get_columns($type);
+        $tableSchema = { map { $_ => { type => $cols->{$_} } } @$cols };
+        $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type} =
+          $tableSchema;
 
-        return $schema;
+        return $tableSchema;
     }
 
     # The table is not in the DB either. Try deduce the schema
     # from the data.
-    $schema = {
+    $tableSchema = {
         tid => {
             type =>
-              $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}->{TOPICINFO}
+              $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}->{topic}
               ->{tid}->{type}
         }
     };
@@ -486,49 +479,53 @@ sub _findOrCreateTable {
     # columns. We read *all* entries so we get all columns.
     foreach my $item ( $mo->find($type) ) {
         foreach my $col ( keys(%$item) ) {
-            $schema->{$col} ||= '_DEFAULT';
+            $tableSchema->{$col} ||= '_DEFAULT';
         }
     }
     trace( 'Creating fly table for ', $type ) if $TRACE{action};
-    _createTable( $type, $schema );
+    _createTable( $type, $tableSchema );
 
-    $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type} = $schema;
+    $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type} = $tableSchema;
 
-    return $schema;
+    return $tableSchema;
 }
 
 # Determine if the column can be used, adding it if that's allowed
 sub _findOrCreateColumn {
-    my ( $col, $schema, $type ) = @_;
+    my ( $col, $tableSchema, $type ) = @_;
 
     # The column might be in the schema but not in the DB
     # if there was a race condition and someone deleted the
     # table under us. Table deletion is very rare, and admin
     # only, so this is an acceptable risk.
-    return $col if ( $schema->{$col} );
+    return $col if ( $tableSchema->{$col} );
 
     return undef
       unless $Foswiki::cfg{Extensions}{DBIStoreContrib}{AutoAddUnknownFields};
 
+    # _column will give us the default type if
+    # the column name isn't matched
+    $tableSchema->{$col} = _column( $type, $col );
+
     # The column might be in the DB but not in
-    # the schema. This may happen if previous
-    # meta-data caused the column to be added.
-    unless ( $personality->column_exists( $type, $col ) ) {
+    # the schema. If so, get the type from there.
+    my $dbColType = $personality->get_columns($type);
+    $dbColType = $dbColType->{$col} if $dbColType;
+    if ($dbColType) {
+        $tableSchema->{$col}->{type} = $dbColType;
+    }
+    else {
+        $dbColType = $tableSchema->{$col}->{type};
         my $sql =
             'ALTER TABLE '
           . $personality->safe_id($type) . ' ADD '
           . $personality->safe_id($col) . ' '
-          . $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{_DEFAULT}
-          ->{type};
+          . $dbColType;
         trace($sql) if $TRACE{sql};
         $dbh->do($sql);
     }
 
     trace( 'Added ', $type, '.', $col . ' to the schema' ) if $TRACE{action};
-
-    # _column will give us the default type if
-    # the column name isn't matched
-    $schema->{$col} = _column( $type, $col );
 
     return $col;
 }
@@ -556,17 +553,21 @@ sub insert {
         # That is done at a much higher level in Foswiki::Meta when the
         # referring topic has it's meta-data rewritten. Here we (will)
         # simply load a serialised version of the attachment data, if
-        # the =serialised= column is specified in the schema.
-        if ( $personality->column_exists( 'FILEATTACHMENT', 'serialised' ) ) {
+        # the serialised column is present in the schema.
+        if ( $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{FILEATTACHMENT}
+            {serialised} )
+        {
 
             # Pull in the attachment data
             my $tids = _getTIDs($mo);
             ASSERT( $tids && scalar @$tids ) if DEBUG;
 
-            # TODO:
-            # $dbh->do( 'UPDATE ' . $personality->safe_id('FILEATTACHMENT')
-            #    . " SET serialised='$data'"
-            #    . " WHERE tid='$tid' AND name='$attachment'" );
+            my $data = 'TODO: load and serialise attachments';
+
+            $dbh->do( 'UPDATE '
+                  . $personality->safe_id('FILEATTACHMENT')
+                  . " SET serialised='$data'"
+                  . " WHERE tid='$tids->[0]' AND name='$attachment'" );
         }
     }
     elsif ( $mo->topic() ) {
@@ -593,9 +594,9 @@ sub insert {
         foreach my $type ( keys %$mo ) {
 
             # Make sure the table exists
-            my $schema = _findOrCreateTable( $type, $mo );
+            my $tableSchema = _findOrCreateTable( $type, $mo );
 
-            next unless $schema;
+            next unless $tableSchema;
 
             # The table might be in the schema but not in the database
             # if it is deleted from the database while we are not looking.
@@ -608,9 +609,10 @@ sub insert {
             foreach my $item (@$data) {
                 my @kns;
 
-                # Check that the table has the columns to accept this data
+                # Check that the table has the columns to accept this data (or
+                # they can be added)
                 foreach my $kn ( keys(%$item) ) {
-                    my $col = _findOrCreateColumn( $kn, $schema, $type );
+                    my $col = _findOrCreateColumn( $kn, $tableSchema, $type );
                     push( @kns, $col ) if $col;
                 }
 
@@ -685,26 +687,26 @@ sub remove {
             # That is done at a much higher level in Foswiki::Meta when the
             # referring topic has it's meta-data rewritten.
 
-            #TODO: Here we simply clear down the raw data stored for the
-            # attachment.
-            #TODO: if ( $personality->column_exists( 'FILEATTACHMENT',
-            # 'serialised' ) )
-            #TODO: {
-            #TODO:     $sql = 'SELECT tid FROM topic '
-            #TODO:           . "WHERE web='"
-            #TODO:           . $webName
-            #TODO:           . "' AND name='"
-            #TODO:           . $topicName
-            #TODO:           . "'";
-            #TODO:     trace( $sql ) if $TRACE{sql};
-            #TODO:     my $tid = $dbh->selectrow_array( $sql );
-            #TODO:     ASSERT($tid) if DEBUG;
-            #TODO:
-            #TODO:     $dbh->do( 'UPDATE ' . $personality->safe_id(
-            # 'FILEATTACHMENT')
-            #TODO:       . " SET serialised=''"
-            #TODO:       . " WHERE tid='$tid' AND name='$attachment'" );
-            #TODO: }
+            # Here we simply clear down the raw data stored for the
+            # attachment, if present.
+            if ( $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}
+                {FILEATTACHMENT}{serialised} )
+            {
+                my $sql =
+                    'SELECT tid FROM topic '
+                  . "WHERE web='"
+                  . $mo->web
+                  . "' AND name='"
+                  . $mo->topic . "'";
+                trace($sql) if $TRACE{sql};
+                my $tid = $dbh->selectrow_array($sql);
+                ASSERT($tid) if DEBUG;
+
+                $dbh->do( 'UPDATE '
+                      . $personality->safe_id('FILEATTACHMENT')
+                      . " SET serialised=''"
+                      . " WHERE tid='$tid' AND name='$attachment'" );
+            }
         }
         else {
             trace( 'Remove ', $mo->web, '.', $mo->topic, '@', $tid )

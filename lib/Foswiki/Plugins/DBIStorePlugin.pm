@@ -6,7 +6,7 @@ package Foswiki::Plugins::DBIStorePlugin;
 use strict;
 use warnings;
 
-use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace);
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace insert remove rename);
 use Foswiki::Store ();
 use Foswiki::Func  ();
 
@@ -59,10 +59,8 @@ sub afterSaveHandler {
     my $meta = $_[4];
     trace( "DBIStorePlugin::afterSaveHandler " . $meta->getPath() )
       if $TRACE{plugin};
-    Foswiki::Contrib::DBIStoreContrib::start();
-    Foswiki::Contrib::DBIStoreContrib::remove($meta);
-    Foswiki::Contrib::DBIStoreContrib::insert($meta);
-    Foswiki::Contrib::DBIStoreContrib::commit();
+    remove($meta);
+    insert($meta);
 }
 
 # Required for a web or topic move
@@ -85,15 +83,13 @@ sub afterRenameHandler {
     Foswiki::Contrib::DBIStoreContrib::start();
 
     if ($oldTopic) {
-        Foswiki::Contrib::DBIStoreContrib::remove($oldo);    #, $olda );
-        Foswiki::Contrib::DBIStoreContrib::insert($newo);    #, $newa );
+        remove($oldo);    #, $olda );
+        insert($newo);    #, $newa );
     }
     else {
         #rename web
-        Foswiki::Contrib::DBIStoreContrib::rename( $oldo, $newo );
+        rename( $oldo, $newo );
     }
-
-    Foswiki::Contrib::DBIStoreContrib::commit();
 }
 
 # Required for an upload
@@ -103,14 +99,12 @@ sub afterUploadHandler {
           . $meta->getPath() . ':'
           . $attrs->{attachment} )
       if $TRACE{plugin};
-    Foswiki::Contrib::DBIStoreContrib::start();
-    Foswiki::Contrib::DBIStoreContrib::remove( $meta, $attrs->{attachment} );
+    remove( $meta, $attrs->{attachment} );
 
     # The topic is saved too, but without invoking the afterSaveHandler :-(
-    Foswiki::Contrib::DBIStoreContrib::remove($meta);
-    Foswiki::Contrib::DBIStoreContrib::insert($meta);
-    Foswiki::Contrib::DBIStoreContrib::insert( $meta, $attrs->{attachment} );
-    Foswiki::Contrib::DBIStoreContrib::commit();
+    remove($meta);
+    insert($meta);
+    insert( $meta, $attrs->{attachment} );
 }
 
 1;
