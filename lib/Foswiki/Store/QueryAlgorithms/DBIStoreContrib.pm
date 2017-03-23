@@ -105,6 +105,7 @@ sub new {
 # See Foswiki::Query::QueryAlgorithms.pm for details
 sub query {
     my ( $this, $query, $topics, $session, $options ) = @_;
+
     unless ( UNIVERSAL::isa( $this, __PACKAGE__ ) ) {
 
         # Sven changed the API to OO based to allow re-use of

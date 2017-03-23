@@ -101,15 +101,15 @@ sub query {
 
     $query = $queryParser->parse($search);
 
-    return Foswiki::Store::QueryAlgorithms::DBIStoreContrib::query( $query,
-        $inputTopicSet, $session, $options );
+    Foswiki::Store::QueryAlgorithms::DBIStoreContrib->new()
+      ->query( $query, $inputTopicSet, $session, $options );
 }
 
 1;
 __END__
 Author: Crawford Currie http://c-dot.co.uk
 
-Copyright (C) 2010 Foswiki Contributors. All Rights Reserved.
+Copyright (C) 2010-2017 Foswiki Contributors. All Rights Reserved.
 Foswiki Contributors are listed in the AUTHORS file in the root
 of this distribution. NOTE: Please extend that file, not this notice.
 
