@@ -74,27 +74,27 @@ SQL
 }
 
 sub regexp {
-    my ( $this, $lhs, $rhs ) = @_;
+    my ( $this, $sexpr, $pat ) = @_;
 
-    unless ( $rhs =~ s/^'(.*)'$/$1/s ) {
+    unless ( $pat =~ s/^'(.*)'$/$1/s ) {
 
         # Somewhat risky....
-        return "$lhs REGEXP $rhs";
+        return "$sexpr REGEXP $pat";
     }
 
     # The macro parser does horrible things with \, causing \\
     # to become \\\. Force it back to \\
-    $rhs =~ s/\\{3}/\\\\/g;
+    $pat =~ s/\\{3}/\\\\/g;
 
     # SQLite uses PCRE, which supports all of Perl except hex
     # char codes
-    $rhs =~ s/\\x([0-9a-f]{2})/_char("0x$1")/gei;
-    $rhs =~ s/\\x\{([0-9a-f]+)\}/_char("0x$1")/gei;
+    $pat =~ s/\\x([0-9a-f]{2})/_char("0x$1")/gei;
+    $pat =~ s/\\x\{([0-9a-f]+)\}/_char("0x$1")/gei;
 
     # Escape '
-    $rhs =~ s/'/\\'/g;
+    $pat =~ s/'/\\'/g;
 
-    return "$lhs REGEXP '$rhs'";
+    return "$sexpr REGEXP '$pat'";
 }
 
 1;

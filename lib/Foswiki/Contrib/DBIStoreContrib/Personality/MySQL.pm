@@ -1,5 +1,5 @@
 # See bottom of file for license and copyright information
-package Foswiki::Contrib::DBIStoreContrib::Personality::mysql;
+package Foswiki::Contrib::DBIStoreContrib::Personality::MySQL;
 
 # DBIStoreContrib personality module for MySQL
 
@@ -56,52 +56,52 @@ sub startup {
 }
 
 sub regexp {
-    my ( $this, $lhs, $rhs ) = @_;
+    my ( $this, $sexpr, $pat ) = @_;
 
-    unless ( $rhs =~ s/^'(.*)'$/$1/s ) {
+    unless ( $pat =~ s/^'(.*)'$/$1/s ) {
 
         # Somewhat risky....
-        return "$lhs REGEXP ($rhs)";
+        return "$sexpr REGEXP ($pat)";
     }
 
     # MySQL uses POSIX regular expressions.
 
     # POSIX has no support for (?i: etc
-    $rhs =~ s/^\(\?[a-z]+:(.*)\)$/$1/;              # remove (?:i)
+    $pat =~ s/^\(\?[a-z]+:(.*)\)$/$1/;              # remove (?:i)
                                                     # Nor hex character codes
-    $rhs =~ s/\\x([0-9a-f]{2})/_char("0x$1")/gei;
-    $rhs =~ s/\\x{([0-9a-f]+)}/_char("0x$1")/gei;
+    $pat =~ s/\\x([0-9a-f]{2})/_char("0x$1")/gei;
+    $pat =~ s/\\x{([0-9a-f]+)}/_char("0x$1")/gei;
 
     # Nor \d, \D
-    $rhs =~ s/(^|(?<=[^\\]))\\d/[0-9]/g;
-    $rhs =~ s/(^|(?<=[^\\]))\\D/[^0-9]/g;
+    $pat =~ s/(^|(?<=[^\\]))\\d/[0-9]/g;
+    $pat =~ s/(^|(?<=[^\\]))\\D/[^0-9]/g;
 
     # Nor \b, \B
-    $rhs =~ s/\\\\[bB](.*?)\\\\[bB]/\[\[:<:\]\]$1\[\[:>:\]\]/g;
-    $rhs =~ s/\\\\[bB]($|\|)/\[\[:>:\]\]$1/g;
-    $rhs =~ s/(^|\|)\\\\[bB]/$1\[\[:<:\]\]/g;
+    $pat =~ s/\\\\[bB](.*?)\\\\[bB]/\[\[:<:\]\]$1\[\[:>:\]\]/g;
+    $pat =~ s/\\\\[bB]($|\|)/\[\[:>:\]\]$1/g;
+    $pat =~ s/(^|\|)\\\\[bB]/$1\[\[:<:\]\]/g;
 
     # Nor \s, \S, \w, \W
-    $rhs =~ s/(^|(?<=[^\\]))\\s/[ \011\012\015]/g;
-    $rhs =~ s/(^|(?<=[^\\]))\\S/[^ \011\012\015]/g;
-    $rhs =~ s/(^|(?<=[^\\]))\\w/[a-zA-Z0-9_]/g;
-    $rhs =~ s/(^|(?<=[^\\]))\\W/[^a-zA-Z0-9_]/g;
+    $pat =~ s/(^|(?<=[^\\]))\\s/[ \011\012\015]/g;
+    $pat =~ s/(^|(?<=[^\\]))\\S/[^ \011\012\015]/g;
+    $pat =~ s/(^|(?<=[^\\]))\\w/[a-zA-Z0-9_]/g;
+    $pat =~ s/(^|(?<=[^\\]))\\W/[^a-zA-Z0-9_]/g;
 
     # Convert X? to (X|)
-    #$rhs =~ s/(?<=[^\\])(\(.*\)|\[.*?\]|\\.|.)\?/($1|)/g;    # ?
-    $rhs =~ s/([\+\*])\?/$1/g;
-    $rhs =~ s/\?://g;
+    #$pat =~ s/(?<=[^\\])(\(.*\)|\[.*?\]|\\.|.)\?/($1|)/g;    # ?
+    $pat =~ s/([\+\*])\?/$1/g;
+    $pat =~ s/\?://g;
 
     # Handle special characters
-    $rhs =~ s/(?<=[^\\])\\n/\n/g;             # will this work?
-    $rhs =~ s/(?<=[^\\])\\r/\r/g;
-    $rhs =~ s/(?<=[^\\])\\t/\t/g;
-    $rhs =~ s/(?<=[^\\])\\b//g;               # not supported
-    $rhs =~ s/(?<=[^\\])\{\d+(,\d*)?\}//g;    # not supported
+    $pat =~ s/(?<=[^\\])\\n/\n/g;             # will this work?
+    $pat =~ s/(?<=[^\\])\\r/\r/g;
+    $pat =~ s/(?<=[^\\])\\t/\t/g;
+    $pat =~ s/(?<=[^\\])\\b//g;               # not supported
+    $pat =~ s/(?<=[^\\])\{\d+(,\d*)?\}//g;    # not supported
                                               # Escape '
-                                              #$rhs =~ s/\\/\\\\/g;
+                                              #$pat =~ s/\\/\\\\/g;
 
-    return "$lhs REGEXP ('$rhs')";
+    return "$sexpr REGEXP ('$pat')";
 }
 
 sub cast_to_numeric {

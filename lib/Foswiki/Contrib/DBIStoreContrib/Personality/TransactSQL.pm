@@ -1,11 +1,13 @@
 # See bottom of file for license and copyright information
-package Foswiki::Contrib::DBIStoreContrib::Personality::ODBC;
+package Foswiki::Contrib::DBIStoreContrib::Personality::TransactSQL;
 
-# Personality module for MS SQL Server / Transact-SQL
+# Personality module for MS SQL Server / Transact-SQL via ODBC
 
 use strict;
 use warnings;
 
+use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
+  BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 use Foswiki::Contrib::DBIStoreContrib::Personality ();
 our @ISA = ('Foswiki::Contrib::DBIStoreContrib::Personality');
 
@@ -15,6 +17,7 @@ our $VERSION = 'Microsoft SQL Server 2005 - 9.00.4035.00 Standard Edition';
 sub new {
     my ( $class, $dbistore ) = @_;
     my $this = $class->SUPER::new($dbistore);
+
     $this->reserve(
         qw/
           ANY AUTHORIZATION BACKUP BEGIN BREAK BROWSE BULK CHECKPOINT CLOSE
@@ -29,17 +32,19 @@ sub new {
           RAISERROR READ READTEXT RECONFIGURE REPLICATION RESTORE RETURN REVERT
           REVOKE ROLLBACK ROWCOUNT ROWGUIDCOL RULE SAVE SCHEMA SECURITYAUDIT
           SEMANTICKEYPHRASETABLE SEMANTICSIMILARITYDETAILSTABLE
-          SEMANTICSIMILARITYTABLE SESSION_USER SETUSER SHUTDOWN SOME STATISTICS
-          SYSTEM_USER TABLESAMPLE TEXTSIZE TOP TRAN TRANSACTION TRIGGER TRUNCATE
-          TRY_CONVERT TSEQUAL UNPIVOT UPDATETEXT USE USER VARYING VIEW WAITFOR
-          WHILE WITHIN GROUP WRITETEXT/
+          SEMANTICSIMILARITYTABLE SESSION_USER SET SETUSER SHUTDOWN SOME
+          STATISTICS SYSTEM_USER TABLESAMPLE TEXTSIZE TOP TRAN TRANSACTION
+          TRIGGER TRUNCATE TRY_CONVERT TSEQUAL UNPIVOT UPDATETEXT USE USER
+          VARYING VIEW WAITFOR WHILE WITHIN GROUP WRITETEXT/
     );
+
+    $this->{true_value} = 'CAST(1 AS BIT)';
+    $this->{true_type}  = PSEUDO_BOOL;
 
     # Override the default type in the schema
     $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{_DEFAULT}{type} =
       'VARCHAR(MAX)';
-    $this->{true_value}      = 'CAST(1 AS BIT)';
-    $this->{true_type}       = Foswiki::Contrib::DBIStoreContrib::PSEUDO_BOOL;
+
     $this->{requires_COMMIT} = 0;
 
     return $this;
@@ -56,6 +61,7 @@ sub startup {
     my $exists = $this->{dbh}->do(<<'SQL');
 SELECT 1 WHERE OBJECT_ID('dbo.foswiki_CONVERT') IS NOT NULL
 SQL
+
     if ( $exists == 0 ) {
 
         # Error-tolerant number conversion. Works like perl.
@@ -93,20 +99,12 @@ SQL
     }
 }
 
-sub cast_to_numeric {
-    my ( $this, $d ) = @_;
-    return "dbo.foswiki_CONVERT($d)";
-}
+sub is_true {
+    my ( $this, $type, $sql ) = @_;
 
-sub regexp {
-    my ( $this, $lhs, $rhs ) = @_;
+    $type = STRING if $type == UNKNOWN;
 
-    unless ( $rhs =~ s/^'(.*)'$/$1/s ) {
-        return "dbo.fn_RegExIsMatch($lhs,$rhs,1)=1";    # risky!
-    }
-    $rhs =~ s/\\/\\\\/g;
-
-    return "dbo.fn_RegExIsMatch($lhs,'$rhs',1)=1";
+    return $this->SUPER::is_true( $type, $sql );
 }
 
 sub length {
@@ -127,6 +125,23 @@ sub d2n {
     return "(CAST(CONVERT(datetime, $arg) AS FLOAT) * 86400 - 22088800)";
 }
 
+sub cast_to_numeric {
+    my ( $this, $d ) = @_;
+    return "dbo.foswiki_CONVERT($d)";
+}
+
+sub regexp {
+    my ( $this, $sexpr, $pat ) = @_;
+
+# See https://www.codeproject.com/Articles/19502/A-T-SQL-Regular-Expression-Library-for-SQL-Server
+    unless ( $pat =~ s/^'(.*)'$/$1/s ) {
+        return "dbo.fn_RegExIsMatch($sexpr,$pat,1)=1";    # risky!
+    }
+    $pat =~ s/\\\\/\\/g;
+
+    return "dbo.fn_RegExIsMatch($sexpr,'$pat',1)=1";
+}
+
 1;
 __DATA__
 
@@ -134,7 +149,7 @@ Author: Crawford Currie http://c-dot.co.uk
 
 Module of Foswiki - The Free and Open Source Wiki, http://foswiki.org/, http://Foswiki.org/
 
-Copyright (C) 2013-2014 Foswiki Contributors. All Rights Reserved.
+Copyright (C) 2017 Foswiki Contributors. All Rights Reserved.
 Foswiki Contributors are listed in the AUTHORS file in the root
 of this distribution. NOTE: Please extend that file, not this notice.
 

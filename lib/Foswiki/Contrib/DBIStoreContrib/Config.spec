@@ -1,8 +1,12 @@
 #---+ Extensions
 #---++ DBIStoreContrib
-# **STRING 120**
-# Trace options - see tools/dbistore_manage.pl --help trace for a full list
-$Foswiki::cfg{Extensions}{DBIStoreContrib}{Trace} = '';
+# ** SELECTCLASS Foswiki::Contrib::DBIStoreContrib::Personality::* **
+# Different implementations of SQL have different behaviours and extend
+# the standard in different ways, so we have to map certain operations in
+# a way that is specific to the database type. For this we use a <em>personality
+# module</em>. Select the appropriate module for your database type,
+# or add your own (and contribute it back).
+$Foswiki::cfg{Extensions}{DBIStoreContrib}{Personality} = 'Foswiki::Contrib::DBIStoreContrib::Personality::SQLite';
 # **STRING 120**
 # DBI DSN to use to connect to the database.
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{DSN} = 'dbi:SQLite:dbname=$Foswiki::cfg{WorkingDir}/dbcache';
@@ -12,6 +16,15 @@ $Foswiki::cfg{Extensions}{DBIStoreContrib}{Username} = '';
 # **STRING 80 CHECK="undefok"**
 # Optional password to use to connect to the database.
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{Password} = '';
+# **STRING 120 EXPERT**
+# Trace options - see tools/dbistore_manage.pl --help trace for a full list
+$Foswiki::cfg{Extensions}{DBIStoreContrib}{Trace} = '';
+# **PERL**
+# Default attributes to pass to the DBI->connect call that connects to your
+# database. You may need to customise these for your specific install,
+# depending on the data types used in your schema. Search Google for
+# "DBI Connect Attributes" for more details.
+$Foswiki::cfg{Extensions}{DBIStoreContrib}{Connect} = { RaiseError => 1, AutoCommit => 1 };
 # **STRING 80**
 # Plugin module name (required on Foswiki 1.1 and earlier)
 $Foswiki::cfg{Plugins}{DBIStorePlugin}{Module} = 'Foswiki::Plugins::DBIStorePlugin';
@@ -21,7 +34,7 @@ $Foswiki::cfg{Plugins}{DBIStorePlugin}{Enabled} = 1;
 # **STRING 80 CHECK="undefok"**
 # Where to find the PCRE library for SQLite. Only used by SQLite. It is
 # installed on Debian Linux using apt-get install sqlite3-pcre
-# (or similar on other systems).
+# (or similar on other distributions).
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{SQLite}{PCRE} = '/usr/lib/sqlite3/pcre.so';
 #  **BOOLEAN**
 # Set to true to automatically create new tables when unregistered META is

@@ -155,13 +155,13 @@ The =length()= operator only works on string data, not on tables.
 
 %$INSTALL_INSTRUCTIONS%
    * Go to =configure= and:
-      1 Set a DSN etc. for the contrib in the 'Extensions' section (the default is for sqlite3),
+      1 Set a DSN in the 'Extensions' section (the default is for sqlite3). Example DSNs:
+         * =dbi:ODBC:wiki= - generic ODBC
+         * =dbi:Pg:foswiki= - PostgreSQL
+         * =dbi:mysql:database=wiki;host=mysqlserver;port=1234= - MySQL
+      1 Select a suitable personality module for your database type.
       1 Select =Foswiki::Store::QueryAlgorithms::DBIStoreContrib= for the ={Store}{QueryAlgorithm}= *EXPERT* setting
       1 Select =Foswiki::Store::SearchAlgorithms::DBIStoreContrib= for the ={Store}{SearchAlgorithm}= setting
-      1 *For Foswiki > 1.1* only
-         * Set ={Store}{ImplementationClasses}{Foswiki::Contrib::DBIStoreContrib::DBIStore}= *EXPERT* configuration setting to =[ 'Foswiki::Store::DBIStoreContrib' ]=.
-      1 *For Foswiki 1.1 only*
-         * enable the integrated =DBIStorePlugin=
 
 ---+++ Testing
 
@@ -170,7 +170,7 @@ Basic tests for queries can be found in the Sandbox.DBIStoreTest topic.
 ---+++ Reloading the database
 
 It may become necessary to reload the DBI database - for example, because
-changes to topics have been made outside of Foswiki. You are recommended to use
+changes to topics have been made outside of Foswiki. You can use
 =tools/dbistore_manage.pl= to do this.
 <verbatim>
 $ cd bin
@@ -179,8 +179,6 @@ $ perl ../tools/dbistore_manage.pl --help
 for more information on resetting the entire database or updating individual
 topics. This program also allows you to run Foswiki search queries against
 the database.
-
-You can also use the plugin to update topics or reset the entire DB. The Sandbox.DBIStoreTest topic contains links that show you how to do this. Only admins can reset the entire DB.
 
 ---+++ Unknown meta-data *EXPERT*
 

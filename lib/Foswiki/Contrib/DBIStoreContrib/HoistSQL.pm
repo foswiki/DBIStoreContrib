@@ -15,7 +15,7 @@ package Foswiki::Contrib::DBIStoreContrib::HoistSQL;
 use strict;
 use Assert;
 
-use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace personality
   NAME NUMBER STRING UNKNOWN BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 use Foswiki::Infix::Node                             ();
 use Foswiki::Query::Node                             ();
@@ -88,7 +88,7 @@ sub _SELECT {
     my (%opts) = @_;
     my $info = '';
     if ( $TRACE{sql} && defined $opts{comment} ) {
-        $info = _personality()->make_comment( $opts{comment} );
+        $info = personality->make_comment( $opts{comment} );
     }
     my $pick = $opts{select};
     if ( ref($pick) ) {
@@ -160,12 +160,12 @@ my %uop_map = (
         if ( $atype != STRING && $atype != UNKNOWN ) {
             $arg = _cast( $arg, $atype, STRING );
         }
-        return ( _personality()->length($arg), NUMBER );
+        return ( personality->length($arg), NUMBER );
     },
     d2n => sub {
         my ( $arg, $atype ) = @_;
         if ( $atype != NUMBER ) {
-            $arg = _personality()->d2n($arg);
+            $arg = personality->d2n($arg);
         }
         return ( $arg, NUMBER );
     },
@@ -247,12 +247,12 @@ my %bop_map = (
     '>=' => sub { _boolean_bop( '>=', @_ ) },
     '~'  => sub {
         my ( $lhs, $lhst, $rhs, $rhst ) = @_;
-        my $expr = _personality()->wildcard( $lhs, $rhs );
+        my $expr = personality->wildcard( $lhs, $rhs );
         return ( $expr, BOOLEAN );
     },
     '=~' => sub {
-        my ( $lhs, $lhst, $rhs, $rhst ) = @_;
-        my $expr = _personality()->regexp( $lhs, $rhs );
+        my ( $sexpr, $lhst, $pat, $rhst ) = @_;
+        my $expr = personality->regexp( $sexpr, $pat );
         return ( $expr, BOOLEAN );
     },
 
@@ -266,11 +266,6 @@ sub _alias {
     my $tid = 't' . ( $temp_id++ );
     $tid .= "_$line" if $TRACE{sql};
     return $tid;
-}
-
-# Get the personalty module
-sub _personality {
-    return Foswiki::Contrib::DBIStoreContrib::personality;
 }
 
 =begin TML
@@ -289,8 +284,8 @@ sub hoist {
     my ($query) = @_;
 
     unless ( defined $TRUE ) {
-        $TRUE      = _personality()->{true_value};
-        $TRUE_TYPE = _personality()->{true_type};
+        $TRUE      = personality->{true_value};
+        $TRUE_TYPE = personality->{true_type};
     }
 
     my $original;
@@ -317,7 +312,7 @@ sub hoist {
         # It's a table; test if the selector is a true value
         my $where = '';
         if ( $h{sel} ) {
-            $where = " WHERE " . _personality()->is_true( $h{type}, $h{sel} );
+            $where = " WHERE " . personality->is_true( $h{type}, $h{sel} );
         }
         my $a2 = _alias(__LINE__);    # SQL server requires this!
              # This rather clumsy construction is required because SQL server
@@ -327,7 +322,7 @@ sub hoist {
 "topic.tid IN (SELECT tid FROM (SELECT * FROM ($h{sql}) AS $a2 $where) AS $alias)";
     }
     else {
-        $h{sql} = _personality()->is_true( $h{type}, $h{sql} );
+        $h{sql} = personality->is_true( $h{type}, $h{sql} );
     }
     trace( ' Built SQL ', $h{sql} ) if $TRACE{hoist};
 
@@ -396,7 +391,7 @@ sub _hoist {
             if ( $name =~ /^META:(\w+)$/ ) {
 
                 # Name of a table
-                $result{sql}           = _personality()->safe_id($1);
+                $result{sql}           = personality->safe_id($1);
                 $result{is_table_name} = 1;
                 $result{type}          = STRING;
             }
@@ -407,7 +402,7 @@ sub _hoist {
             else {
 
                 # Name of a field
-                $name = _personality()->safe_id($name);
+                $name = personality->safe_id($name);
                 $result{sql} = $in_table ? "$in_table.$name" : $name;
                 $result{type} = STRING;
             }
@@ -448,7 +443,7 @@ sub _hoist {
                 $node, $node->{params}[1] );
         }
         else {
-            $where{sql} = _personality()->is_true( $where{type}, $where{sql} );
+            $where{sql} = personality->is_true( $where{type}, $where{sql} );
         }
 
         my $where = "$where{sql}$tid_constraint";
@@ -483,8 +478,7 @@ sub _hoist {
             push( @selects, $result{sel} );
         }
         elsif ( $lhs{is_table_name} ) {
-            push( @selects,
-                "$alias." . _personality()->safe_id( $result{sel} ) );
+            push( @selects, "$alias." . personality->safe_id( $result{sel} ) );
         }
         else {
             _abort( "Expected a table on the LHS of '.':", $node );
@@ -510,13 +504,13 @@ sub _hoist {
         my %lhs = _hoist( $node->{params}[0], undef );
         my $lhs_where;
         my @selects;
-        my $wtn = _personality()
-          ->strcat( "$topic_alias.web", "'.'", "$topic_alias.name" );
+        my $wtn =
+          personality->strcat( "$topic_alias.web", "'.'", "$topic_alias.name" );
         if ( $lhs{is_select} ) {
             my $tnames = _alias(__LINE__);
             push( @selects, _AS( $lhs{sql} => $tnames ) );
             my $tname_sel = $tnames;
-            $tname_sel = "$tnames." . _personality()->safe_id( $lhs{sel} )
+            $tname_sel = "$tnames." . personality->safe_id( $lhs{sel} )
               if $lhs{sel};
             $lhs_where = "($topic_alias.name=$tname_sel OR ($wtn)=$tname_sel)";
         }
@@ -658,10 +652,8 @@ sub _hoist {
                         $node
                     );
                 }
-                my $l_sel =
-                  "$lhs_alias." . _personality()->safe_id( $lhs{sel} );
-                my $r_sel =
-                  "$rhs_alias." . _personality()->safe_id( $rhs{sel} );
+                my $l_sel = "$lhs_alias." . personality->safe_id( $lhs{sel} );
+                my $r_sel = "$rhs_alias." . personality->safe_id( $rhs{sel} );
 
                 my ( $expr, $optype ) = &$opfn(
                     $l_sel => $lhs{type},
@@ -761,7 +753,7 @@ sub _genSingleTableSELECT {
 
     my $alias = _alias(__LINE__);
     my $sel   = $alias;
-    $sel = "$alias." . _personality()->safe_id( $table->{sel} )
+    $sel = "$alias." . personality->safe_id( $table->{sel} )
       if $table->{sel};
 
     $result->{sel}        = _alias(__LINE__);
@@ -804,13 +796,13 @@ sub _cast {
     my ( $arg, $type, $tgt_type ) = @_;
     return $arg if $tgt_type == UNKNOWN || $type == $tgt_type;
     if ( $tgt_type == BOOLEAN ) {
-        $arg = _personality()->is_true( $type, $arg );
+        $arg = personality->is_true( $type, $arg );
     }
     elsif ( $tgt_type == NUMBER ) {
-        $arg = _personality()->cast_to_numeric($arg);
+        $arg = personality->cast_to_numeric($arg);
     }
     elsif ( $type != UNKNOWN ) {
-        $arg = _personality()->cast_to_text($arg);
+        $arg = personality->cast_to_text($arg);
     }
     return $arg;
 }

@@ -160,19 +160,19 @@ SQL
 
 =begin TML
 
----++ regexp($lhs, $rhs) -> $sql
+---++ regexp($expr, $pat) -> $sql
 Construct an SQL expression to execute the given regular expression
 match.
-  * =$rhs= - right hand side of the match
-  * =$lhs= - the regular expression (perl syntax)
-be different :-(
+  * =$expr= - string expression
+  * =$pat= - Foswiki (perl) regular expression
 
 =cut
 
 sub regexp {
-    my ( $this, $lhs, $rhs ) = @_;
+    my ( $this, $expr, $pat ) = @_;
 
-    return "$lhs REGEXP $rhs";
+    # Yeah, like any SQL DB is going to do this...
+    return "$expr REGEXP $pat";
 }
 
 =begin TML
@@ -304,7 +304,7 @@ sub is_true {
         # to false.
         return "($sql)!=''";
     }
-    else {    # $type == BOOLEAN
+    else {    # $type == BOOLEAN or UNKNOWN
         return $sql;
     }
 }

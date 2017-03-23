@@ -1,5 +1,5 @@
 # See bottom of file for license and copyright information
-package Foswiki::Contrib::DBIStoreContrib::Personality::Pg;
+package Foswiki::Contrib::DBIStoreContrib::Personality::PostgreSQL;
 
 # DBIStoreContrib personality module for Postgresql
 
@@ -7,6 +7,8 @@ use strict;
 use warnings;
 use Assert;
 
+use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
+  BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 use Foswiki::Contrib::DBIStoreContrib::Personality ();
 our @ISA = ('Foswiki::Contrib::DBIStoreContrib::Personality');
 
@@ -86,6 +88,14 @@ $$ LANGUAGE PLPGSQL IMMUTABLE STRICT;
 DO
 }
 
+sub is_true {
+    my ( $this, $type, $sql ) = @_;
+
+    $type = STRING if $type == UNKNOWN;
+
+    return $this->SUPER::is_true( $type, $sql );
+}
+
 sub cast_to_numeric {
     my ( $this, $d ) = @_;
     return "make_number($d)";
@@ -97,20 +107,20 @@ sub _char {
 }
 
 sub regexp {
-    my ( $this, $lhs, $rhs ) = @_;
+    my ( $this, $sexpr, $pat ) = @_;
 
-    unless ( $rhs =~ s/^'(.*)'$/$1/s ) {
-        return "$lhs ~ $rhs";    # risky!
+    unless ( $pat =~ s/^'(.*)'$/$1/s ) {
+        return "$sexpr ~ $pat";    # risky!
     }
 
-    my $i = ( $rhs =~ s/^\(\?i:(.*)\)$/$1/s ) ? '*' : '';
+    my $i = ( $pat =~ s/^\(\?i:(.*)\)$/$1/s ) ? '*' : '';
 
-    $rhs =~ s/\\x([0-9a-f]{2})/_char("0x$1")/gei;
-    $rhs =~ s/\\x{([0-9a-f]+)}/_char("0x$1")/gei;
+    $pat =~ s/\\x([0-9a-f]{2})/_char("0x$1")/gei;
+    $pat =~ s/\\x{([0-9a-f]+)}/_char("0x$1")/gei;
 
     # Postgresql supports full POSIX regexes.
 
-    return "$lhs ~$i '$rhs'";
+    return "$sexpr ~$i '$pat'";
 }
 
 sub length {
