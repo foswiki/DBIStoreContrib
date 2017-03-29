@@ -80,8 +80,6 @@ sub afterRenameHandler {
     my $newo =
       new Foswiki::Meta( $Foswiki::Plugins::SESSION, $newWeb, $newTopic );
 
-    Foswiki::Contrib::DBIStoreContrib::start();
-
     if ($oldTopic) {
         remove($oldo);    #, $olda );
         insert($newo);    #, $newa );
