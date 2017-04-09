@@ -124,7 +124,7 @@ sub get_columns {
 SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS 
  WHERE TABLE_NAME = '$table'
 SQL
-    my $s = $this->{dbh}->selectcol_arrayref($sql);
+    my $s = $this->{dbh}->selectall_arrayref($sql);
     return { map { ( $_->[0] => $_->[1] ) } @$s };
 }
 

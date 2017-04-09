@@ -21,8 +21,8 @@ use Foswiki       ();
 use Foswiki::Func ();
 use DBI           ();
 
-our $VERSION = '1.3';          # plugin version is also locked to this
-our $RELEASE = '9 Mar 2017';
+our $VERSION = '1.4';          # plugin version is also locked to this
+our $RELEASE = '9 Apr 2017';
 
 # Global options, used to control tracing etc throughout the module
 our %TRACE = (
