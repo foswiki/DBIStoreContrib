@@ -11,8 +11,7 @@ use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
 use Foswiki::Contrib::DBIStoreContrib::Personality ();
 our @ISA = ('Foswiki::Contrib::DBIStoreContrib::Personality');
 
-# Use the database version this has been tested with
-our $VERSION = 'Microsoft SQL Server 2005 - 9.00.4035.00 Standard Edition';
+our $VERSION = 'Microsoft SQL Server';
 
 sub new {
     my ( $class, $dbistore ) = @_;
@@ -44,8 +43,6 @@ sub new {
     # Override the default type in the schema
     $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{_DEFAULT}{type} =
       'VARCHAR(MAX)';
-
-    $this->{requires_COMMIT} = 0;
 
     return $this;
 }

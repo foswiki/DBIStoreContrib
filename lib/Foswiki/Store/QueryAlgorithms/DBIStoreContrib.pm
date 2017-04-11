@@ -22,7 +22,7 @@ use Foswiki::Search::ResultSet ();
 use Foswiki::MetaCache         ();
 use Foswiki::Query::Node       ();
 use Foswiki::Func              ();
-use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace utf2site);
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace utf82site);
 
 BEGIN {
     eval 'require Foswiki::Store::Interfaces::QueryAlgorithm';
@@ -190,17 +190,9 @@ sub query {
       if $TRACE{search};
 
     my $topicSet = [];
-    my $sth      = Foswiki::Contrib::DBIStoreContrib::query($sql);
-    while ( my @row = $sth->fetchrow_array() ) {
-        my $_web  = utf2site( $row[0] );
-        my $_name = utf2site( $row[1] );
-        trace(  "Decoded: "
-              . $_web . " / "
-              . $_name
-              . " from UTF8 to "
-              . $Foswiki::cfg{Site}{CharSet} )
-          if $TRACE{search};
-        push( @$topicSet, "$_web/$_name" );
+    my $rv       = Foswiki::Contrib::DBIStoreContrib::query($sql);
+    foreach my $row (@$rv) {
+        push( @$topicSet, "$row->[0]/$row->[1]" );
     }
 
     my $filter = getOptionFilter($options);

@@ -8,7 +8,10 @@
 # or add your own (and contribute it back).
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{Personality} = 'Foswiki::Contrib::DBIStoreContrib::Personality::SQLite';
 # **STRING 120**
-# DBI DSN to use to connect to the database.
+# DBI DSN to use to connect to the database. Example DSNs:
+#   * dbi:ODBC:foswiki
+#   * dbi:Pg:dbname=foswiki
+#   * dbi:mysql:database=foswiki;host=mysqlserver;port=1234
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{DSN} = 'dbi:SQLite:dbname=$Foswiki::cfg{WorkingDir}/dbcache';
 # **STRING 80 CHECK="undefok"**
 # Optional username to use to connect to the database.
@@ -16,15 +19,13 @@ $Foswiki::cfg{Extensions}{DBIStoreContrib}{Username} = '';
 # **STRING 80 CHECK="undefok"**
 # Optional password to use to connect to the database.
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{Password} = '';
+# **STRING 80 CHECK="undefok"**
+# Optional prefix to add to SQL table names. This may be required if the
+# simple table names conflict with existing tables in the database.
+$Foswiki::cfg{Extensions}{DBIStoreContrib}{TablePrefix} = '';
 # **STRING 120 EXPERT**
 # Trace options - see tools/dbistore_manage.pl --help trace for a full list
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{Trace} = '';
-# **PERL**
-# Default attributes to pass to the DBI->connect call that connects to your
-# database. You may need to customise these for your specific install,
-# depending on the data types used in your schema. Search Google for
-# "DBI Connect Attributes" for more details.
-$Foswiki::cfg{Extensions}{DBIStoreContrib}{Connect} = { RaiseError => 1, AutoCommit => 1 };
 # **STRING 80**
 # Plugin module name (required on Foswiki 1.1 and earlier)
 $Foswiki::cfg{Plugins}{DBIStorePlugin}{Module} = 'Foswiki::Plugins::DBIStorePlugin';

@@ -15,29 +15,35 @@ Works as a mirror of an existing store (e.g. PlainFile, RCS)
    3. Simply to support other clients querying data using SQL.
 
 The extension has been designed to be *fully compatible* with existing
-=%SEARCH= expressions, and is usable with all well-written extensions (those
-that have been written to use the Foswiki::Func API, and do not perform
-direct-to-disk file operations.)
+=%SEARCH= expressions, and is usable with all well-written extensions
+(those that have been written to use the Foswiki::Func API, and do not
+perform direct-to-disk file operations.)
 
-It has been tested with:
-   * [[http://www.sqlite.org/][SQLite 3.7.13]],
-   * [[http://www.mysql.com/][MySQL 5.5.37]],
-   * [[http://www.postgresql.org/][Postgresql 9.1.13]], and
-   * [[www.microsoft.com/SQL][Microsoft SQL Server 2005 9.00.4035.00 SP2 (Transact-SQL)]].
+It has "personality modules" that support the following SQL implementations:
+   * [[http://www.sqlite.org/][SQLite]]
+   * [[http://www.mysql.com/][MySQL]]
+   * [[http://www.postgresql.org/][Postgresql]]
+   * [[www.microsoft.com/SQL][Microsoft SQL Server (Transact-SQL)]]
 
-Note however that there are many different versions of these databases and
+Note that there are many different versions of these databases and
 compatibility with any given version cannot be guaranteed.
 
 ---++ Database Schema
-The database schema must reflect 1:1 the structure of data in Foswiki topics.
+The database schema must reflect 1:1 the structure of data in Foswiki
+topics.
 
-The schema is defined using a Perl hash structure. Top level keys in this hash represent:
-   * The name of a _column type declaration_, if the key starts with an underscore e.g. =_DATE=
-      * column type names map to a hash defining a column, as described below
+The schema is defined using a Perl hash structure. Top level keys in
+this hash represent:
+   * The name of a _column type declaration_, if the key starts with
+     an underscore e.g. =_DATE=
+      * column type names map to a hash defining a column, as
+        described below
    * The name of a table
-      * table names map to a hash defining the columns in each row of the table
+      * table names map to a hash defining the columns in each row of
+        the table
          * Each column name maps to a hash defining the column
-         * column names can also map to the name of a _column type declaration_ e.g. =_DATE=.
+         * column names can also map to the name of a _column type
+           declaration_ e.g. =_DATE=.
 
 ---+++ Declaring tables
 Some basic tables must always exist in the schema:
@@ -54,36 +60,48 @@ Contains all wiki topics.
 Contains the names of all meta-tables.
    * =name= - table name, e.g. =TOPICINFO=, =FORM= etc
 
-Other tables are used for different types of Foswiki =%<nop>META:= - for example, the table =TOPICINFO= corresponds to the =%<nop>META:TOPICINFO= found at the top of all (raw) topics. Each column in these tables corresponds to an attribute in the corresponding =%<nop>META:=.
+Other tables are used for different types of Foswiki =%<nop>META:= -
+for example, the table =TOPICINFO= corresponds to the
+=%<nop>META:TOPICINFO= found at the top of all (raw) topics. Each
+column in these tables corresponds to an attribute in the
+corresponding =%<nop>META:=.
 
 ---+++ Automatically extending the schema
-The schema should normally specify a table for every =%<nop>META:= that may
-occur in topics. This works so long as you know what meta-data will be added
-by the plugins you use. If you don't know, you can optionally specify that
-new tables are automatically added by setting ={AutoloadUnknownMETA}= in
-=configure.
+The schema should normally specify a table for every =%<nop>META:=
+that may occur in topics. This works so long as you know what
+meta-data will be added by the plugins you use. If you don't know, you
+can optionally specify that new tables are automatically added by
+setting ={AutoloadUnknownMETA}= in =configure.
 
 Normally only columns defined in the schema are loaded. Columns can be
-automatically added for attributes missing from the schema by setting ={AutoAddUnknownFields}= in configure. Automatically added columns will be given the type specified by the =_DEFAULT= column type declaration.
+automatically added for attributes missing from the schema by setting
+={AutoAddUnknownFields}= in configure. Automatically added columns
+will be given the type specified by the =_DEFAULT= column type
+declaration.
 
-Note that it is always best to make sure all meta-data has a schema entry. Automatic extension of the schema is relatively expensive, and should be avoided if possible.
+Note that it is always best to make sure all meta-data has a schema
+entry. Automatic extension of the schema is relatively expensive, and
+should be avoided if possible.
 
 ---+++ Defining columns
-Each row in each table always has a =tid= column, which must be an integer
-type. This column is used to associate the row with a row in the =topic=
-table (and meta-data in other tables).
+Each row in each table always has a =tid= column, which must be an
+integer type. This column is used to associate the row with a row in
+the =topic= table (and meta-data in other tables).
 
 Columns are defined in a Perl hash containing attributes: 
    * =type= (required) specifies the SQL type for the column
-   * =basetype= optionally specifies a column type declaration to base this type on (local attributes override those in the base type)
+   * =basetype= optionally specifies a column type declaration to base
+     this type on (local attributes override those in the base type)
    * =index= if true, then an index will be created for the column
    * =truncate_to= if set to a length, then the value of that field
-    stored in the DB will be truncated to that length. This only affects
-    searching. If =truncate=_to is not set, then trying to store a value
-    longer than the field accepts will be an error.
-   * =unique= may be set to the name of a uniqueness constraint (see below)
-   * =primary= if true, the column will be the PRIMARY KEY for the table.
-    This automatically enforces a uniqueness constraint on the column.
+    stored in the DB will be truncated to that length. This only
+    affects searching. If =truncate=_to is not set, then trying to
+    store a value longer than the field accepts will be an error.
+   * =unique= may be set to the name of a uniqueness constraint (see
+     below)
+   * =primary= if true, the column will be the PRIMARY KEY for the
+    table.  This automatically enforces a uniqueness constraint on the
+    column.
 
 For example,
 <verbatim>
@@ -100,9 +118,10 @@ will give a column type of
 
 ---++++ Uniqueness constraints
 The =unique= column attribute is used to specify what _unique-set_ the
-column belongs to. Unique-sets force each value of a column (or
-the combined values of a set of a group of columns) to be unique in the table.
-There may be more than one unique-set in a single table. For example,
+column belongs to. Unique-sets force each value of a column (or the
+combined values of a set of a group of columns) to be unique in the
+table.  There may be more than one unique-set in a single table. For
+example,
 
 <verbatim>
     topic => {
@@ -112,137 +131,239 @@ There may be more than one unique-set in a single table. For example,
         ...
         },
 </verbatim>
-specifies the unique-set =webtopic= on both =web= and =name= columns. The
-database will enforce the constraint that no two rows can have the same =web= and =topic= (but two rows can have the same =web=, so long as the =topic= is different, or the same =topic=, so long as the =web= is different). Note that =primary= columns are automatically unique and don't need a =unique= attribute.
+specifies the unique-set =webtopic= on both =web= and =name=
+columns. The database will enforce the constraint that no two rows can
+have the same =web= and =topic= (but two rows can have the same =web=,
+so long as the =topic= is different, or the same =topic=, so long as
+the =web= is different). Note that =primary= columns are automatically
+unique and don't need a =unique= attribute.
 
 ---++++ =_DEFAULT=
-The column type declaration =_DEFAULT= must exist and must be a text type,
-ideally supporting arbitrary length text strings, if either of the ={AutoloadUnknownMETA}= or
-={AutoAddUnknownFields}= options are enabled in =configure=.
+The column type declaration =_DEFAULT= must exist and must be a text
+type, ideally supporting arbitrary length text strings, if either of
+the ={AutoloadUnknownMETA}= or ={AutoAddUnknownFields}= options are
+enabled in =configure=.
 
 ---++++ SQL Types
 Different database implementations have different requirements for the
-best types to use with that database, so the schema has to be tailored for the
-specific database being used. See http://foswiki.org/Support/DBIStoreContribSchemas for more information.
+best types to use with that database, so the schema has to be tailored
+for the specific database being used. See
+http://foswiki.org/Support/DBIStoreContribSchemas for more
+information.
 
 ---++ Search Limitations
 ---+++ Regular Expressions
 Regular expression searches are mapped to whatever regular expression
-support exists in the database. Most SQL databases support sophisticated
-regular expression matching; however there are features of the default
-Perl syntax supported by Foswiki that cannot be mapped to the databases.
-Regular expressions written using this extended syntax may fail.
+support exists in the database. Most SQL databases support
+sophisticated regular expression matching; however there are features
+of the default Perl syntax supported by Foswiki that cannot be mapped
+to the databases.  Regular expressions written using this extended
+syntax may fail.
 
 ---+++ Numeric comparison
-Foswiki is built on Perl, which "knows" when two values in the database can be compared using numeric comparison (the =, <, >, <= and >= operators). SQL doesn't have this kind of support, and will always use lexical comparison on strings, so be careful when comparing using numeric comparison operators, as the results are likely to be different to what base Foswiki would return.
+Foswiki is built on Perl, which "knows" when two values in the
+database can be compared using numeric comparison (the =, <, >, <= and
+>= operators). SQL doesn't have this kind of support, and will always
+use lexical comparison on strings, so be careful when comparing using
+numeric comparison operators, as the results are likely to be
+different to what base Foswiki would return.
 
 ---+++ Date comparison
-Date conversion using the =d2n= operator is not supported with Postgresql and
-!MySQL.
+Date conversion using the =d2n= operator is not supported with
+Postgresql and !MySQL.
 
 ---+++ Row indexes
 Integer indexes are not supported. Use queries instead.
 
 ---+++ Representational types
-The type defined in the schema must be long enough to store any possible
-value for the given field, but be as short as possible to maximise the
-DB's chance of building a decent index for it.
+The type defined in the schema must be long enough to store any
+possible value for the given field, but be as short as possible to
+maximise the DB's chance of building a decent index for it.
 
 ---+++ length of an array
 The =length()= operator only works on string data, not on tables.
+
+---++ Unicode
+Unicode characters are supported in the database by UTF-8 encoding
+everything and storing as bytes. This is a compromise between the need
+to store international characters, and doing so in an efficient way
+(SQL Server, especially, is very bad at storing unicode natively).
+
+If you intend to query the database outside of Foswiki, bear in mind
+that all strings are UTF-8 encoded. That will also apply to any data
+you have stored in form field values and extended meta-data tags.
+
+If you are using Foswiki <2 then data will automatically be converted
+from your {Site}{CharSet} to UTF-8 before saving in the database.
 
 ---++ Installation Instructions
 
 %$INSTALL_INSTRUCTIONS%
    * Go to =configure= and:
-      1 Set a DSN in the 'Extensions' section (the default is for sqlite3). Example DSNs:
+      1 Set a DSN in the 'Extensions' section (the default is for
+      sqlite3). Example DSNs:
          * =dbi:ODBC:wiki= - generic ODBC
-         * =dbi:Pg:foswiki= - PostgreSQL
+         * =dbi:Pg:dbname=foswiki= - PostgreSQL
          * =dbi:mysql:database=wiki;host=mysqlserver;port=1234= - MySQL
       1 Select a suitable personality module for your database type.
-      1 Select =Foswiki::Store::QueryAlgorithms::DBIStoreContrib= for the ={Store}{QueryAlgorithm}= *EXPERT* setting
-      1 Select =Foswiki::Store::SearchAlgorithms::DBIStoreContrib= for the ={Store}{SearchAlgorithm}= setting
+      1 Select =Foswiki::Store::QueryAlgorithms::DBIStoreContrib= for
+      the ={Store}{QueryAlgorithm}= *EXPERT* setting 1 Select
+      =Foswiki::Store::SearchAlgorithms::DBIStoreContrib= for the
+      ={Store}{SearchAlgorithm}= setting
 
 ---+++ Loading the database
 
-It is necessary to initialise the database from the existing store. You can use
-=tools/dbistore_manage.pl= to do this.
+It is necessary to initialise the database from the existing
+store. You can use =tools/dbistore_manage.pl= to do this.
 <verbatim>
 $ cd bin
 $ perl ../tools/dbistore_manage.pl --help
 </verbatim>
-for more information on resetting the entire database or loading or updating individual
-topics (for example, if a program outside Foswiki changes the store).
+for more information on resetting the entire database or loading or
+updating individual topics (for example, if a program outside Foswiki
+changes the store).
 
-The =dbistore_manage.pl= program also allows you to run Foswiki search queries and SQL
-statements against the database from the command-line.
+The =dbistore_manage.pl= program also allows you to run Foswiki search
+queries and SQL statements against the database from the command-line.
 
 ---+++ Testing
 
 Basic tests for queries can be found in the Sandbox.DBIStoreTest topic.
 
 ---+++ !MySQL Notes
-The !MySQL database user needs at least the following privileges:
-SELECT, INSERT, CREATE, and DROP.
+Here's how the test environment (where the database server is running
+on the same host as Foswiki) is set up:
+<verbatim>
+CREATE USER foswiki@localhost IDENTIFIED BY 'foswiki';
+GRANT SELECT, INSERT, CREATE, DROP ON foswiki to foswiki@localhost;
+FLUSH PRIVILEGES;
+CREATE DATABASE foswiki;
+ALTER DATABASE foswiki COLLATE utf8_unicode_ci;
+</verbatim>
 
 ---+++ Postgresql Notes
+Here's how the test environment (where the database server is running
+on the same host as Foswiki) is set up:
+<verbatim>
+CREATE USER foswiki PASSWORD 'foswiki';
+CREATE DATABASE foswiki;
+</verbatim>
 
 ---+++ Microsoft SQL Server Notes
-If you are using Windows authentication for users on SQL Server, then the simplest
-thing to do is to use the ODBC driver with DBIStoreContrib and create a data
-source for SQL Server in the ODBC Administrator which uses Windows authentication.
-Then set an empty username and password for !DBIStoreContrib.
+SQL Server is supported via DBD::ODBC.
 
-SQL Server does not come equipped with regular expression matching, which is
-required for Foswiki, so you will need to install a regular expression library.
-The default personality module included in this module requires the user function =dbo.fn_RegExIsMatch= to stub the =.NET= !RegEx class. Instructions for building and installing this user function can be found at
-http://www.codeproject.com/Articles/19502/A-T-SQL-Regular-Expression-Library-for-SQL-Server
-
-Make you set a collation sequence for the database. For example,
+---++++ Encoding
+Make sure you set a collation sequence for the database. For example,
 <verbatim>
 ALTER DATABASE Foswiki COLLATE Latin1_General_100_CS_AS_SC;
 </verbatim>
-Without this, upper and lower case strings will be compared case-insensitively, and the DB will be unable to distinguish =ThisTopicName= and =THISTOPICNAME=.
+Without this, upper and lower case strings will be compared
+case-insensitively, and the DB will be unable to distinguish
+=ThisTopicName= and =THISTOPICNAME=.
+
+Unicode support in SQL Server consists of the obsolete UCS-2 encoding,
+which uses 2 bytes per character. If you are using mainly western
+characters with only a few high-bit characters, this is staggeringly
+inefficient. Further, every other driver supports UTF-8, so we made
+the decision to store byte strings and UTF-8 encode them before
+storing in the DB. Because UTF-8 is a superset of ASCII, most English
+language users will find this quite satisfactory. Users of other
+western scripts that include diacritical marks will probably encounter
+collation (sorting) issues when accessing data directly. SQL Server
+does not have a UTF-8 collation. Users of non-western scripts are
+recommended to use a different database.
+
+---++++ Authentication
+If you are using Windows authentication for access to the database
+server, then the simplest thing to do is to use the ODBC driver and
+create a data source for SQL Server which uses Windows
+authentication. Then set an empty username and password in the
+!DBIStoreContrib configuration.
+
+---++++ Regular Expressions
+SQL Server does not come equipped with regular expression matching,
+which is required for Foswiki, so you will need to install a regular
+expression library.  The default personality module included in this
+module requires the user function =dbo.fn_RegExIsMatch= to stub the
+=.NET= !RegEx class. Instructions for building and installing this
+user function can be found at
+http://www.codeproject.com/Articles/19502/A-T-SQL-Regular-Expression-Library-for-SQL-Server
+This module has not been tested with Unicode characters.
 
 ---+++ SQLite Notes
-SQLite requires the =pcre= module to be installed to support regular expression searches. The path to this module is set up in =configure=. 
+SQLite requires the =pcre= module to be installed to support regular
+expression searches. The path to this module is set up in =configure=.
 
 ---++ How it works
 ---+++ Searches and Queries
-Foswiki has two internal interfaces, "search algorithm" and "query algorithm", that are selected from =configure=. These two interfaces are implemented in a variety of ways in the Foswiki core, but the typical solution is to implement the query interface in terms of the search interface i.e. map _queries_ to regular expression _searches_. This is done by "hoisting" those parts of a query that can be mapped to regular expressions and using those hoisted expressions as a filter to reduce the set of matching topics. The "unhoistable" parts of the query are then applied to the remaining topics using "brute force" to give a final set of matching topics.
+Foswiki has two internal interfaces, "search algorithm" and "query
+algorithm", that are selected from =configure=. These two interfaces
+are implemented in a variety of ways in the Foswiki core, but the
+typical solution is to implement the query interface in terms of the
+search interface i.e. map _queries_ to regular expression
+_searches_. This is done by "hoisting" those parts of a query that can
+be mapped to regular expressions and using those hoisted expressions
+as a filter to reduce the set of matching topics. The "unhoistable"
+parts of the query are then applied to the remaining topics using
+"brute force" to give a final set of matching topics.
 
-The DBIStoreContrib turns this process on its head by mapping _searches_ to SQL _queries_. Most modern RDBMS support regular expression searches, so a text search can be expressed as a regular expression match on a "raw text" field in the DB. Structured queries, on the other hand, are hoisted to extract SQL from the Foswiki query statement.
+The DBIStoreContrib turns this process on its head by mapping
+_searches_ to SQL _queries_. Most modern RDBMS support regular
+expression searches, so a text search can be expressed as a regular
+expression match on a "raw text" field in the DB. Structured queries,
+on the other hand, are hoisted to extract SQL from the Foswiki query
+statement.
 
-Note that you don't *have* to use the mapping search algorithm for text searches - if you have a caching full text search implementation (such as Foswiki:Extensions.SolrPlugin) you should be able to continue using that.
+Note that you don't *have* to use the mapping search algorithm for
+text searches - if you have a caching full text search implementation
+(such as Foswiki:Extensions.SolrPlugin) you should be able to continue
+using that.
 
 ---+++ The Database
-The database is used simply as a cache, to accelerate searches. The contrib is designed to work with the standard Foswiki RCS-based store, but can also work with *any* post 1.2.0 store implementation. It can also hook into the standard plugin handlers for a slightly reduced capability.
+The database is used simply as a cache, to accelerate searches. The
+contrib is designed to work with the standard Foswiki RCS-based store,
+but can also work with *any* post 1.2.0 store implementation. It can
+also hook into the standard plugin handlers for a slightly reduced
+capability.
 
-The database is interfaced to via the standard Perl DBI interface, so any RDBMS that has an adapter can be used for the cache. This includes most standard SQL RDBMS. If you want to use a different database you will have to implement a personality module for it; if you do this, please contribute the new personality module (and appropriate usage information) back to the community.
+The database is interfaced to via the standard Perl DBI interface, so
+any RDBMS that has an adapter can be used for the cache. This includes
+most standard SQL RDBMS. If you want to use a different database you
+will have to implement a personality module for it; if you do this,
+please contribute the new personality module (and appropriate usage
+information) back to the community.
 
-The schema used to represent Foswiki topics is (currently) a 1:1 mapping of the schema described in System.QuerySearch. The same schema could be used to store Foswiki topics in the actual store, and this is one of the longer term goals. Among other things, this would allow us to search topic histories.
+The schema used to represent Foswiki topics is (currently) a 1:1
+mapping of the schema described in System.QuerySearch. The same schema
+could be used to store Foswiki topics in the actual store, and this is
+one of the longer term goals. Among other things, this would allow us
+to search topic histories.
 
 ---+++ The Code
 Here's an overview of the important bits of the contrib:
-   * =lib/Foswiki/Contrib/DBIStoreContrib/HoistSQL.pm= - code that hoists SQL statements from Foswiki queries
-   * =lib/Foswiki/Contrib/DBIStoreContrib/DBIStore.pm= - a partial =Foswiki::Store= implementation that eveavesdrops on =Store::recordChange= events (Foswiki >1.1 only)
-   * =lib/Foswiki/Plugins/DBIStorePlugin.pm= - plugin handlers (Foswiki <=1.1 only)
-   * =lib/Foswiki/Store/QueryAlgorithms/DBIStoreContrib.pm= - the query algorithm
-   * =lib/Foswiki/Store/SearchAlgorithms/DBIStoreContrib.pm= - the search algorithm
-
-The subversion repository (but not the official release) contains a fixed version of DBI::Shell from CPAN. This
-can be useful when debugging SQL server, or for simply understanding the tables. Run it using:
-
-=perl -I &lt;path to DBIStoreContrib checkout&gt;/lib -MDBI::Shell &lt;dsn from configure&gt; &lt;username&gt; &lt;password&gt;=
+   * =lib/Foswiki/Contrib/DBIStoreContrib/HoistSQL.pm= - code that
+     hoists SQL statements from Foswiki queries
+   * =lib/Foswiki/Contrib/DBIStoreContrib/DBIStore.pm= - a partial
+     =Foswiki::Store= implementation that eveavesdrops on
+     =Store::recordChange= events (Foswiki >1.1 only)
+   * =lib/Foswiki/Plugins/DBIStorePlugin.pm= - plugin handlers
+     (Foswiki <=1.1 only)
+   * =lib/Foswiki/Store/QueryAlgorithms/DBIStoreContrib.pm= - the
+     query algorithm
+   * =lib/Foswiki/Store/SearchAlgorithms/DBIStoreContrib.pm= - the
+     search algorithm
+   * =tools/dbistore_manage.pl= - command line program for
+     manipulating and querying the DB.
 
 ---++ Info
 
 |  Author(s): | Crawford Currie http://c-dot.co.uk |
-|  Copyright: | &copy; 2010-2014 C-Dot Consultants |
+|  Copyright: | &copy; 2010-2017 C-Dot Consultants |
 |  License: | [[http://www.gnu.org/licenses/gpl.html][GPL (Gnu General Public License)]] |
 |  Release: | %$RELEASE% |
 |  Version: | %$VERSION% |
 |  Change History: | <!-- versions below in reverse order -->&nbsp; |
+|  2.0 (April 2017) | Rework for Foswiki 2.0 |
 |  1.2 (18 Oct 2014) | Foswikitask:Item12992: Added UNIQUE constraints to schema Foswikitask:Item13056: fix fileattachment moves in plugin |
 |  1.1 (12 Aug 2014) | Fixes for Foswikitask:Item12989 and Foswikitask:Item12990: |
 |  1.0 (8 May 2014) | First version |

@@ -5,6 +5,7 @@ package Foswiki::Contrib::DBIStoreContrib::Personality::MySQL;
 
 use strict;
 use warnings;
+use Foswiki::Contrib::DBIStoreContrib qw(trace %TRACE);
 
 use Foswiki::Contrib::DBIStoreContrib::Personality ();
 our @ISA = ('Foswiki::Contrib::DBIStoreContrib::Personality');
@@ -67,10 +68,10 @@ sub regexp {
     # MySQL uses POSIX regular expressions.
 
     # POSIX has no support for (?i: etc
-    $pat =~ s/^\(\?[a-z]+:(.*)\)$/$1/;              # remove (?:i)
-                                                    # Nor hex character codes
+    $pat =~ s/^\(\?[a-z]+:(.*)\)$/$1/;                # remove (?:i)
+                                                      # Nor hex character codes
     $pat =~ s/\\x([0-9a-f]{2})/_char("0x$1")/gei;
-    $pat =~ s/\\x{([0-9a-f]+)}/_char("0x$1")/gei;
+    $pat =~ s/\\x\{([0-9a-f]+)\}/_char("0x$1")/gei;
 
     # Nor \d, \D
     $pat =~ s/(^|(?<=[^\\]))\\d/[0-9]/g;
@@ -116,13 +117,6 @@ sub cast_to_text {
 
 sub length {
     return "char_length($_[1])";
-}
-
-sub safe_id {
-    my ( $this, $id ) = @_;
-    $id =~ s/[^A-Za-z0-9_]//gs;    # protect against bad data
-    $id = "`$id`";
-    return $id;
 }
 
 1;

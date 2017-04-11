@@ -15,7 +15,8 @@ package Foswiki::Contrib::DBIStoreContrib::HoistSQL;
 use strict;
 use Assert;
 
-use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace personality
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE
+  trace personality $TABLE_PREFIX
   NAME NUMBER STRING UNKNOWN BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 use Foswiki::Infix::Node                             ();
 use Foswiki::Query::Node                             ();
@@ -305,7 +306,8 @@ sub hoist {
     my %h = _hoist( $query, 'topic' );
     my $alias = _alias(__LINE__);    # SQL server requires this!
     if ( $h{is_table_name} ) {
-        $h{sql} = "topic.tid IN (SELECT tid FROM ($h{sql}) AS $alias)";
+        $h{sql} =
+          "${TABLE_PREFIX}topic.tid IN (SELECT tid FROM ($h{sql}) AS $alias)";
     }
     elsif ( $h{is_select} ) {
 
@@ -319,7 +321,7 @@ sub hoist {
              # can't use an aliased column in the WHERE condition of the same
              # SELECT.
         $h{sql} =
-"topic.tid IN (SELECT tid FROM (SELECT * FROM ($h{sql}) AS $a2 $where) AS $alias)";
+"${TABLE_PREFIX}topic.tid IN (SELECT tid FROM (SELECT * FROM ($h{sql}) AS $a2 $where) AS $alias)";
     }
     else {
         $h{sql} = personality->is_true( $h{type}, $h{sql} );
@@ -391,7 +393,7 @@ sub _hoist {
             if ( $name =~ /^META:(\w+)$/ ) {
 
                 # Name of a table
-                $result{sql}           = personality->safe_id($1);
+                $result{sql} = personality->safe_id( $TABLE_PREFIX . $1 );
                 $result{is_table_name} = 1;
                 $result{type}          = STRING;
             }

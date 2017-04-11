@@ -4,10 +4,12 @@ package Foswiki::Contrib::DBIStoreContrib::Personality;
 use strict;
 use warnings;
 use Assert;
+use Encode ();
 
 # Import type constants
 use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
-  BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
+  BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL
+  trace %TRACE);
 
 # We try to use the ANSI SQL standard as far as possible, for the most
 # part different SQL DB implementations support it fairly well. However
@@ -37,12 +39,7 @@ sub new {
 
             # If the DB has a native BOOLEAN type this is BOOLEAN. If it
             # has to use a BIT value, this will be PSEUDO_BOOL.
-            true_type => BOOLEAN,
-
-            # Numeric shadow columns? If true, generate a FLOAT column
-            # for each META: column, and do a perl data conversion of
-            # the text data into it when saving.
-            use_shadows => 0,
+            true_type => BOOLEAN
         },
         $class
     );
@@ -74,7 +71,35 @@ sub reserve {
 
 =begin TML
 
----++ startup($dbh)
+---++ ObjectMethod encode_utf8($s) -> $e
+
+Some drivers require you to encode to UTF8 (DBD::SQLite), and some don't
+(DBD::Pg). The default is to encode.
+
+=cut
+
+sub encode_utf8 {
+    my $this = shift;
+    return Encode::encode_utf8( $_[0] );
+}
+
+=begin TML
+
+---++ ObjectMethod decode_utf8($e) -> $s
+
+Some drivers require you to decode from UTF8 (DBD::SQLite), and some don't
+(DBD::Pg)
+
+=cut
+
+sub decode_utf8 {
+    my $this = shift;
+    return Encode::decode_utf8( $_[0] );
+}
+
+=begin TML
+
+---++ ObjectMethod startup($dbh)
 Execute any SQL commands required to start the DB in ANSI mode.
 Subclasses must call superclass.
 
@@ -88,7 +113,7 @@ sub startup {
 
 =begin TML
 
----+ table_exists(table_name [, table_name]*) -> boolean
+---++ ObjectMethod table_exists(table_name [, table_name]*) -> boolean
 Determine if a table exists. All tables named in parameters
 must exist.
 
@@ -96,7 +121,7 @@ must exist.
 
 sub table_exists {
     my $this = shift;
-    my $tables = join( ',', map { "'$_'" } @_ );
+    my $tables = join( ',', map { $this->safe_data($_) } @_ );
     ASSERT( $this->{dbh} ) if DEBUG;
 
     # MySQL, Postgresql, MS SQL Server
@@ -104,13 +129,15 @@ sub table_exists {
 SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
  WHERE TABLE_NAME IN ($tables)
 SQL
-    my $rows = $this->{dbh}->selectall_arrayref($sql);
+
+    trace($sql) if $TRACE{sql};
+    my $rows = $this->{dbh}->selectall_arrayref( $this->encode_utf8($sql) );
     return scalar(@$rows) == scalar(@_);
 }
 
 =begin TML
 
----+ get_columns(table_name) -> %cols
+---++ ObjectMethod get_columns(table_name) -> %cols
 Get a map of column names to type for the given table
 
 =cut
@@ -124,13 +151,15 @@ sub get_columns {
 SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS 
  WHERE TABLE_NAME = '$table'
 SQL
-    my $s = $this->{dbh}->selectall_arrayref($sql);
+
+    trace($sql) if $TRACE{sql};
+    my $s = $this->{dbh}->selectall_arrayref( $this->encode_utf8($sql) );
     return { map { ( $_->[0] => $_->[1] ) } @$s };
 }
 
 =begin TML
 
----++ regexp($expr, $pat) -> $sql
+---++ ObjectMethod regexp($expr, $pat) -> $sql
 Construct an SQL expression to execute the given regular expression
 match.
   * =$expr= - string expression
@@ -147,7 +176,7 @@ sub regexp {
 
 =begin TML
 
----++ wildcard($lhs, $rhs) -> $sql
+---++ ObjectMethod wildcard($lhs, $rhs) -> $sql
 Construct an SQL expression that will match a Foswiki wildcard
 name match.
 
@@ -204,7 +233,7 @@ sub wildcard {
 
 =begin TML
 
----++ d2n($timestring) -> $isosecs
+---++ ObjectMethod d2n($timestring) -> $isosecs
 Convert a Foswiki time string to a number.
 This implementation is for SQLite - there is no support in ANSI.
 
@@ -218,6 +247,7 @@ sub d2n {
 
 =begin
 
+---++ ObjectMethod length($s) -> $i
 Calculate the character length of a string
 
 =cut
@@ -229,23 +259,50 @@ sub length {
 
 =begin TML
 
----++ safe_id($id) -> $safeid
+---++ ObjectMethod safe_id($id) -> $safeid
+
 Make sure the ID is safe to use in this dialect of SQL.
 Unsafe IDs should be quoted using the dialect's identifier
-quoting rule. The default is to double-quote all identifiers.
+quoting rule.
+
+The default is to double-quote all identifiers.
+ If $this->no_high_bit()
+is true, then all high-bit characters are encoded as XN where N is the
+decimal codepoint of the character.
+
+Note that this is only used on idenitifers derived from Foswiki data
+e.g. table and column names.
 
 =cut
 
 sub safe_id {
     my ( $this, $id ) = @_;
-    $id =~ s/[^A-Za-z0-9_]//gs;    # protect against bad data
-    $id = "\"$id\"";
-    return $id;
+
+    # blunt instrument - protect against all non-word chars
+    $id =~ s/([^\w])/'X'.ord("\1")/ges;
+    return "\"$id\"";
 }
 
 =begin TML
 
----++ cast_to_numeric($sql) -> $sql
+---++ ObjectMethod safe_data($data) -> $safedata
+Make sure the data is safe to use in this dialect of SQL.
+Unsafe data should be quoted using the dialect's data
+quoting rule. The default is to single-quote all identifiers.
+
+=cut
+
+sub safe_data {
+    my ( $this, $data ) = @_;
+
+    # double up single quotes
+    $data =~ s/'/''/g;
+    return "'$data'";
+}
+
+=begin TML
+
+---++ ObjectMethod cast_to_numeric($sql) -> $sql
 Cast a datum to a numeric type for comparison
 
 =cut
@@ -257,7 +314,7 @@ sub cast_to_numeric {
 
 =begin TML
 
----++ is_true($type, $sql) -> $sql
+---++ ObjectMethod is_true($type, $sql) -> $sql
 Test if SQL computes to NULL. Ideally this will test if the SQL evaluates
 to the empty string, NULL, boolean FALSE or a numeric value of zero.
 
@@ -281,7 +338,7 @@ sub is_true {
 
 =begin TML
 
----++ cast_to_string($sql) -> $sql
+---++ ObjectMethod cast_to_string($sql) -> $sql
 Cast a datum to a character string type for comparison
 
 =cut
@@ -296,7 +353,7 @@ sub cast_to_text {
 
 =begin TML
 
----++ make_comment() -> $comment_string
+---++ ObjectMethod make_comment() -> $comment_string
 Make a comment string
 
 =cut
@@ -308,7 +365,7 @@ sub make_comment {
 
 =begin TML
 
----++ strcat($str1 [$str2 [, ... strN]) -> $concatenated
+---++ ObjectMethod strcat($str1 [$str2 [, ... strN]) -> $concatenated
 Use the SQL string concatenation operator to concatente strings.
 
 =cut

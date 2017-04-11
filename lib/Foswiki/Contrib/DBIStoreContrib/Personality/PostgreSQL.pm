@@ -87,6 +87,10 @@ $$ LANGUAGE PLPGSQL IMMUTABLE STRICT;
 DO
 }
 
+# No encoding/decoding requied, the driver does it for us
+sub encode_utf8 { return $_[1]; }
+sub decode_utf8 { return $_[1]; }
+
 sub is_true {
     my ( $this, $type, $sql ) = @_;
 
@@ -115,7 +119,7 @@ sub regexp {
     my $i = ( $pat =~ s/^\(\?i:(.*)\)$/$1/s ) ? '*' : '';
 
     $pat =~ s/\\x([0-9a-f]{2})/_char("0x$1")/gei;
-    $pat =~ s/\\x{([0-9a-f]+)}/_char("0x$1")/gei;
+    $pat =~ s/\\x\{([0-9a-f]+)\}/_char("0x$1")/gei;
 
     # Postgresql supports full POSIX regexes.
 

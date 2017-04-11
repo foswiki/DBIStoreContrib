@@ -1,10 +1,11 @@
 # See bottom of file for license and copyright information
 package Foswiki::Contrib::DBIStoreContrib::Personality::SQLite;
 
-# SBICtoreContrib personality module for SQLite
+# DBIStoreContrib personality module for SQLite
 
 use strict;
 use warnings;
+use Foswiki::Contrib::DBIStoreContrib qw(trace %TRACE);
 
 use Foswiki::Contrib::DBIStoreContrib::Personality ();
 our @ISA = ('Foswiki::Contrib::DBIStoreContrib::Personality');
@@ -25,6 +26,7 @@ sub new {
           RELEASE RENAME REPLACE ROLLBACK ROW SAVEPOINT TEMP TEMPORARY
           TRANSACTION TRIGGER USING VACUUM VIEW VIRTUAL WITHOUT/
     );
+
     return $this;
 }
 
@@ -41,24 +43,24 @@ sub startup {
 
 sub table_exists {
     my $this   = shift;
-    my $tables = join( ',', map { "'$_'" } @_ );
+    my $tables = join( ',', map { $this->safe_data($_) } @_ );
     my $sql    = <<SQL;
 SELECT name FROM sqlite_master
     WHERE type='table' AND name IN ($tables)
 SQL
+    trace($sql) if $TRACE{sql};
     my @rows = $this->{dbh}->selectrow_array($sql);
-
-   #Foswiki::Func::writeDebug( scalar(@rows)." tables exist of ".scalar(@_)."");
     return scalar(@rows);
 }
 
 sub get_columns {
     my ( $this, $table, $column ) = @_;
-    my $sql = <<SQL;
-PRAGMA table_info($table)
-SQL
+    my $sql  = "PRAGMA table_info(" . $this->safe_data($table) . ')';
     my $rows = $this->{dbh}->selectall_arrayref($sql);
-    return { map { $_->[1] => $_->[2] } @$rows };
+    return {
+        map { $this->decode_utf8( $_->[1] ) => $this->decode_utf8( $_->[2] ) }
+          @$rows
+    };
 }
 
 sub regexp {
