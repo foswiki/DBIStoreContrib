@@ -11,7 +11,6 @@ use Carp;
 
 BEGIN {
     do 'setlib.cfg';
-    $SIG{__DIE__} = sub { Carp::confess( $_[0] ) }
 }
 
 use Getopt::Long ();
@@ -184,11 +183,10 @@ if ( defined $query ) {
       $Foswiki::Plugins::SESSION->search->parseSearch( $query,
         { type => 'query' } );
     $sql = Foswiki::Contrib::DBIStoreContrib::HoistSQL::hoist($query);
-    $sql = "SELECT web,name FROM ${TABLE_PREFIX}topic WHERE $sql";
+    $sql = "SELECT web,name FROM \"${TABLE_PREFIX}topic\" WHERE $sql";
     $sql .= " AND name LIKE '$topic'" if $topic;
     $sql .= " AND web LIKE '$web'"    if $web;
 
-    trace($sql) if $TRACE{sql};
     $opsDone++;
 }
 
@@ -198,7 +196,6 @@ if ( defined $sql ) {
         while (<>) {
             $sql .= $_;
         }
-        $sql = Encode::decode_utf8($sql);
     }
     my $rv = Foswiki::Contrib::DBIStoreContrib::query($sql);
     if ( $sql =~ /^\s*select\W/i ) {

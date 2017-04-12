@@ -23,7 +23,7 @@ $Foswiki::cfg{Extensions}{DBIStoreContrib}{Password} = '';
 # Optional prefix to add to SQL table names. This may be required if the
 # simple table names conflict with existing tables in the database.
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{TablePrefix} = '';
-# **STRING 120 EXPERT**
+# **STRING 120 EXPERT CHECK="undefok"**
 # Trace options - see tools/dbistore_manage.pl --help trace for a full list
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{Trace} = '';
 # **STRING 80**
@@ -37,7 +37,7 @@ $Foswiki::cfg{Plugins}{DBIStorePlugin}{Enabled} = 1;
 # installed on Debian Linux using apt-get install sqlite3-pcre
 # (or similar on other distributions).
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{SQLite}{PCRE} = '/usr/lib/sqlite3/pcre.so';
-#  **BOOLEAN**
+#  **BOOLEAN CHECK="undefok"**
 # Set to true to automatically create new tables when unregistered META is
 # encountered in topic text. This should not normally be required, as plugins
 # should register all META that they create. Note that only META:NAME where
@@ -47,7 +47,7 @@ $Foswiki::cfg{Extensions}{DBIStoreContrib}{SQLite}{PCRE} = '/usr/lib/sqlite3/pcr
 # in the table, so finding topics without that field becomes tricky.
 # It is always better to register META.
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{AutoloadUnknownMETA} = 0;
-#  **BOOLEAN**
+#  **BOOLEAN CHECK="undefok"**
 # Set to true to automatically create new columns when fields in META are
 # not present in the schema. This should not normally be required, as plugins
 # should register all META that they create.
@@ -57,70 +57,69 @@ $Foswiki::cfg{Extensions}{DBIStoreContrib}{AutoloadUnknownMETA} = 0;
 # It is always better to register META.
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{AutoAddUnknownFields} = 0;
 # **PERL**
-# Specify how to construct the database. This schema should work with
-# SQlite3 and PostgreSQL but other database may require a different schema,
-# or plugins may require an extension to the schema.
+# Specify how to construct the database. Some databases may require a
+# different schema, or plugins may require an extension to the schema.
 # See http://foswiki.org/Extensions/DBIStoreContrib for a detailed discussion.
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema} = {
-    _DEFAULT => { type => 'TEXT' },
-    _INDEXED => { type => 'TEXT', index => 1 },
-    topic => {
-        tid  => { type => 'INT', primary => 1 },
-        web  => { type => 'TEXT', index => 1, unique => 'webtopic' },
-        name => { type => 'TEXT', index => 1, unique => 'webtopic' },
-        text => '_DEFAULT',
-        raw  => '_DEFAULT'
-        },
-    metatypes => {
-        name => { type => 'TEXT', primary => 1 },
-        },
-    TOPICINFO => {
-        tid  => { type => 'INT', unique => 'onetopicinfo' },
-        author => '_INDEXED',
-        version => '_DEFAULT',
-        date => '_DEFAULT',
-        format => '_DEFAULT',
-        reprev => '_DEFAULT',
-        rev => '_DEFAULT',
-        comment => '_DEFAULT'
-    },
-    TOPICMOVED => {
-        tid  => { type => 'INT' },
-        from => '_DEFAULT',
-        to => '_DEFAULT',
-        by => '_DEFAULT',
-        date => '_DEFAULT',
-    },
-    TOPICPARENT => {
-        tid  => { type => 'INT', unique => 'oneparent' },
-        name => '_INDEXED'
-    },
-    FILEATTACHMENT => {
-        tid  => { type => 'INT' },
-        name => '_INDEXED',
-        version => '_DEFAULT',
-        path => '_DEFAULT',
-        size => '_DEFAULT',
-        date => '_DEFAULT',
-        user => '_INDEXED',
-        comment => '_DEFAULT',
-        attr => '_DEFAULT'
-    },
-    FORM => {
-        tid  => { type => 'INT' },
-        name => { type => 'TEXT', index => 1 },
-    },
-    FIELD => {
-        tid  => { type => 'INT' },
-        name => '_INDEXED',
-        value => '_DEFAULT',
-        title => '_DEFAULT'
-    },
-    PREFERENCE => {
-        tid  => { type => 'INT', unique => 'onepref' },
-        name => { type => 'TEXT', index => 1, unique => 'onepref' },
-        value => '_DEFAULT',
-        type => '_DEFAULT',
-    }
+  _DEFAULT => { type => 'TEXT', default => '' },
+  _INDEXED => { type => 'TEXT', index => 1 },
+  FIELD => {
+    tid  => { type => 'INT' },
+    name => '_INDEXED',
+    value => '_DEFAULT',
+    title => '_DEFAULT'
+  },
+  FILEATTACHMENT => {
+    tid  => { type => 'INT' },
+    name => '_INDEXED',
+    version => '_DEFAULT',
+    path => '_DEFAULT',
+    size => '_DEFAULT',
+    date => '_DEFAULT',
+    user => '_INDEXED',
+    comment => '_DEFAULT',
+    attr => '_DEFAULT'
+  },
+  FORM => {
+    tid  => { type => 'INT' },
+    name => '_INDEXED'
+  },
+  PREFERENCE => {
+    tid  => { type => 'INT', unique => 'onepref' },
+    name => { basetype => '_INDEXED', unique => 'onepref' },
+    value => '_DEFAULT',
+    type => '_DEFAULT',
+  },
+  TOPICINFO => {
+    tid  => { type => 'INT', unique => 'onetopicinfo' },
+    author => '_INDEXED',
+    version => '_DEFAULT',
+    date => '_DEFAULT',
+    format => '_DEFAULT',
+    reprev => '_DEFAULT',
+    rev => '_DEFAULT',
+    comment => '_DEFAULT'
+  },
+  TOPICMOVED => {
+    tid  => { type => 'INT' },
+    from => '_DEFAULT',
+    to => '_DEFAULT',
+    by => '_DEFAULT',
+    date => '_DEFAULT',
+  },
+  TOPICPARENT => {
+    tid  => { type => 'INT', unique => 'oneparent' },
+    name => '_INDEXED'
+  },
+  topic => {
+    tid  => { type => 'INT', primary => 1 },
+    web  => { basetype => '_INDEXED', unique => 'webtopic' },
+    name => { basetype => '_INDEXED', unique => 'webtopic' },
+    text => '_DEFAULT',
+    raw  => '_DEFAULT'
+  },
+  metatypes => {
+    name => { type => 'TEXT', primary => 1 },
+  }
 };
 1;

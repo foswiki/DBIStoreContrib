@@ -35,32 +35,33 @@ sub startup {
     $this->SUPER::startup($dbh);
 
     # Load PCRE, required for regexes
-    $this->{dbh}->sqlite_enable_load_extension( my $_enabled = 1 );
-    $this->{dbh}->prepare(
-"SELECT load_extension('$Foswiki::cfg{Extensions}{DBIStoreContrib}{SQLite}{PCRE}')"
-    );
+    $this->{dbh}->sqlite_enable_load_extension(1);
+    my $sql = "SELECT load_extension('"
+      . $Foswiki::cfg{Extensions}{DBIStoreContrib}{SQLite}{PCRE} . "')";
+    $this->sql( 'prepare', $sql );
 }
+
+# Driver handles unicode, no need to encode on call, can use the default
+# Personality::sql. However it requires results to be decoded.
+sub from_db { return Encode::decode_utf8( $_[1] ); }
+
+# Need to decode utf8 coming back from the DB, su use the default personality
 
 sub table_exists {
     my $this   = shift;
-    my $tables = join( ',', map { $this->safe_data($_) } @_ );
-    my $sql    = <<SQL;
-SELECT name FROM sqlite_master
-    WHERE type='table' AND name IN ($tables)
-SQL
-    trace($sql) if $TRACE{sql};
-    my @rows = $this->{dbh}->selectrow_array($sql);
+    my $tables = join( ',', map { $this->quoted_string($_) } @_ );
+    my $sql    = "SELECT name FROM sqlite_master WHERE type='table'"
+      . " AND name IN ($tables)";
+    my @rows = $this->sql( 'selectrow_array', $sql );
     return scalar(@rows);
 }
 
 sub get_columns {
     my ( $this, $table, $column ) = @_;
-    my $sql  = "PRAGMA table_info(" . $this->safe_data($table) . ')';
-    my $rows = $this->{dbh}->selectall_arrayref($sql);
-    return {
-        map { $this->decode_utf8( $_->[1] ) => $this->decode_utf8( $_->[2] ) }
-          @$rows
-    };
+    my $sql = "PRAGMA table_info(" . $this->quoted_string($table) . ')';
+    my $rows = $this->sql( 'selectall_arrayref', $sql );
+    return { map { $this->from_db( $_->[1] ) => $this->from_db( $_->[2] ) }
+          @$rows };
 }
 
 sub regexp {

@@ -22,7 +22,7 @@ use Foswiki::Search::ResultSet ();
 use Foswiki::MetaCache         ();
 use Foswiki::Query::Node       ();
 use Foswiki::Func              ();
-use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace utf82site);
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace $TABLE_PREFIX);
 
 BEGIN {
     eval 'require Foswiki::Store::Interfaces::QueryAlgorithm';
@@ -179,7 +179,7 @@ sub query {
     require Foswiki::Contrib::DBIStoreContrib::HoistSQL;
     my $hoisted = Foswiki::Contrib::DBIStoreContrib::HoistSQL::hoist($query);
     my $sql =
-        'SELECT web,name FROM topic WHERE '
+        "SELECT web,name FROM ${TABLE_PREFIX}topic WHERE "
       . $hoisted
       . _expand_arguments( \%hoist_control )
       . ' ORDER BY web,name';

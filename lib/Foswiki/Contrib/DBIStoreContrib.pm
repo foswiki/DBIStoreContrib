@@ -38,8 +38,9 @@ our %TRACE = (
 
 require Exporter;
 our @ISA       = qw(Exporter);
-our @EXPORT_OK = qw(%TRACE trace personality utf82site insert remove rename
-  $TABLE_PREFIX
+our @EXPORT_OK = qw(
+  trace personality insert remove rename
+  $TABLE_PREFIX %TRACE
   NAME NUMBER STRING UNKNOWN BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 
 our $SHORTDESCRIPTION = 'Use DBI to implement a store using an SQL database.';
@@ -103,11 +104,10 @@ sub personality {
     return $personality;
 }
 
+# _applyToStrings(data-to-convert, function-to-do-the-conversion)
 # Because the DB only stores bytes, all data in the DB is stored UTF-8
 # encoded. Need to convert to/from this encoding.
-
-# (data-to-convert, function-to-do-the-conversion)
-sub _rConvert {
+sub _applyToStrings {
     my ( $data, $fn ) = @_;
 
     if ( !ref($data) ) {
@@ -115,14 +115,14 @@ sub _rConvert {
     }
     elsif ( ref($data) eq 'ARRAY' ) {
         for ( my $i = 0 ; $i <= $#{$data} ; $i++ ) {
-            $data->[$i] = _rConvert( $data->[$i], $fn );
+            $data->[$i] = _applyToStrings( $data->[$i], $fn );
         }
         return $data;
     }
     elsif ( ref($data) eq 'HASH' ) {
         while ( my ( $k, $v ) = each %$data ) {
             my $nk = &$fn($k);    # assume keys are always scalars
-            $v = _rConvert( $v, $fn );
+            $v = _applyToStrings( $v, $fn );
             if ( $nk ne $k ) {
                 delete $data->{$k};
                 $data->{$nk} = $v;
@@ -131,10 +131,11 @@ sub _rConvert {
         return $data;
     }
     else {
-        die "Can't _rConvert a " . ref($data);
+        die "Can't _applyToStrings a " . ref($data);
     }
 }
 
+# Convert from the site charset to unicode
 sub site2uc {
     if ( !$Foswiki::UNICODE && $Foswiki::cfg{Site}{CharSet} ne 'utf-8' ) {
 
@@ -144,19 +145,13 @@ sub site2uc {
     return $_[0];
 }
 
-sub _UTF82Site {
+# Convert from unicode to the site charset
+sub uc2site {
 
-    # Decode utf8 to unicode, if personality requires it
-    $_[0] = personality->decode_utf8( $_[0] );
     if ( !$Foswiki::UNICODE && $Foswiki::cfg{Site}{CharSet} ne 'utf-8' ) {
         $_[0] = Encode::encode( $Foswiki::cfg{Site}{CharSet}, $_[0] );
     }
     return $_[0];
-}
-
-# Recursively convert scalars in a structure from utf8 to the site charset
-sub utf82site {
-    return _rConvert( $_[0], \&_UTF82Site );
 }
 
 # Used throughout the module. Parameters are iterated through to generate
@@ -221,7 +216,7 @@ sub getDBH {
     }
 
     $TABLE_PREFIX =
-      $Foswiki::cfg{Extensions}{DBIStoreContrib}{TablePrefix} || '';
+      $Foswiki::cfg{Extensions}{DBIStoreContrib}{TablePrefix} // '';
 
     if ($Foswiki::inUnitTestMode) {
 
@@ -259,10 +254,10 @@ sub getDBH {
         if ( $TRACE{action} ) {
 
             # Check metatypes integrity
-            my $tables = $dbh->selectcol_arrayref(
-                'SELECT name FROM ${TABLE_PREFIX}metatypes');
+            my $sql = 'SELECT name FROM ${TABLE_PREFIX}metatypes';
+            my $tables = personality->sql( 'selectcol_arrayref', $sql );
             foreach my $table (@$tables) {
-                $table = personality->decode_utf8($table);
+                $table = personality->from_db($table);
                 unless ( personality->table_exists($table) ) {
                     trace( $table, ' is in metatypes but does not exist' );
                 }
@@ -289,9 +284,13 @@ sub _createTable {
         $cschema = $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$cschema}
           unless ( ref($cschema) );
         _basetype($cschema);
-        my $s = personality->safe_id($cname) . ' ' . $cschema->{type};
+        my $s = personality->identifier($cname) . ' ' . $cschema->{type};
         if ( $cschema->{primary} ) {
             $s .= ' PRIMARY KEY';
+        }
+        if ( defined $cschema->{default} ) {
+            $s .=
+              ' DEFAULT ' . personality->quoted_string( $cschema->{default} );
         }
         if ( defined $cschema->{unique} ) {
             ASSERT( $cschema->{unique} =~ /^[A-Za-z]+$/i ) if DEBUG;
@@ -300,28 +299,26 @@ sub _createTable {
         }
         push( @cols, $s );
     }
-    my $sn = personality->safe_id( $TABLE_PREFIX . $tname );
+    my $sn = personality->identifier( $TABLE_PREFIX . $tname );
     my $ok = 0;
     while ( my ( $cons, $set ) = each %constraint ) {
         push( @cols,
                 'CONSTRAINT '
-              . personality->safe_id($cons)
+              . personality->identifier($cons)
               . ' UNIQUE ('
-              . join( ',', map { personality->safe_id($_) } @$set )
+              . join( ',', map { personality->identifier($_) } @$set )
               . ')' );
         $ok = 1;
     }
     my $cols = join( ',', @cols );
     my $sql = "CREATE TABLE $sn ( $cols )";
-    trace($sql) if $TRACE{sql};
-    $dbh->do( personality->encode_utf8($sql) );
+    personality->sql( 'do', $sql );
 
     # Add non-primary tables to the table of tables
     unless ( $tname eq 'topic' || $tname eq 'metatypes' ) {
         my $sql = "INSERT INTO ${TABLE_PREFIX}metatypes (name) VALUES ( "
-          . personality->safe_data("$TABLE_PREFIX$tname") . " )";
-        trace($sql) if $TRACE{sql};
-        $dbh->do( personality->encode_utf8($sql) );
+          . personality->quoted_string("$TABLE_PREFIX$tname") . " )";
+        personality->sql( 'do', $sql );
     }
 
     # Create indexes
@@ -333,11 +330,10 @@ sub _createTable {
         next unless ( $cschema->{index} );
         my $sql =
             'CREATE INDEX '
-          . personality->safe_id("IX_${tname}_${cname}") . ' ON '
-          . personality->safe_id( $TABLE_PREFIX . $tname ) . '('
-          . personality->safe_id($cname) . ')';
-        trace($sql) if $TRACE{sql};
-        $dbh->do( personality->encode_utf8($sql) );
+          . personality->identifier("IX_${tname}_${cname}") . ' ON '
+          . personality->identifier( $TABLE_PREFIX . $tname ) . '('
+          . personality->identifier($cname) . ')';
+        personality->sql( 'do', $sql );
     }
 }
 
@@ -363,14 +359,13 @@ sub _getTIDs {
     my $mo = shift;
 
     my $sql =
-        "SELECT tid FROM ${TABLE_PREFIX}topic WHERE "
+        "SELECT tid FROM \"${TABLE_PREFIX}topic\" WHERE "
       . ( $mo->topic ? ' name=\'' . site2uc( $mo->topic ) . '\' AND ' : '' )
       . ' web=\''
       . site2uc( $mo->web() ) . '\'';
-    trace($sql) if $TRACE{sql};
 
     # No need to decode, just numbers
-    return $dbh->selectrow_arrayref( personality->encode_utf8($sql) );
+    return personality->sql( 'selectrow_arrayref', $sql );
 }
 
 =begin TML
@@ -423,7 +418,7 @@ sub load {
 
 sub _truncate {
     my ( $data, $size ) = @_;
-    return $data unless defined($size) && length("$data") > $size;
+    return $data unless defined($size) && length($data) > $size;
     Foswiki::Func::writeWarning( 'Truncating ' . length($data) . " to $size" );
     return substr( $data, 0, $size - 3 ) . '...';
 }
@@ -503,9 +498,12 @@ sub _findOrCreateTable {
         # Table is in the DB; pull the column names and types from there
         # and add them to the schema so we don't go through this next time
         my $cols = personality->get_columns($type);
-        $tableSchema = { map { $_ => { type => $cols->{$_} } } @$cols };
+        my %tableSchema;
+        while ( my ( $k, $v ) = each %$cols ) {
+            $tableSchema{$k} = { type => $v };
+        }
         $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$type} =
-          $tableSchema;
+          \%tableSchema;
 
         return $tableSchema;
     }
@@ -551,23 +549,30 @@ sub _findOrCreateColumn {
     # _column will give us the default type if
     # the column name isn't matched
     $tableSchema->{$col} = _column( $type, $col );
+    my $tsch = $tableSchema->{$col};
 
     # The column might be in the DB but not in
     # the schema. If so, get the type from there.
     my $dbColType = personality->get_columns($type);
     $dbColType = $dbColType->{$col} if $dbColType;
     if ($dbColType) {
-        $tableSchema->{$col}->{type} = $dbColType;
+        $tsch->{type} = $dbColType;
     }
     else {
-        $dbColType = $tableSchema->{$col}->{type};
+        # Must add the column to the DB
+        $dbColType = $tsch->{type};
         my $sql =
             'ALTER TABLE '
-          . personality->safe_id( $TABLE_PREFIX . $type ) . ' ADD '
-          . personality->safe_id($col) . ' '
-          . $dbColType;
-        trace($sql) if $TRACE{sql};
-        $dbh->do( personality->encode_utf8($sql) );
+          . personality->identifier( $TABLE_PREFIX . $type ) . ' ADD '
+          . personality->identifier($col) . ' '
+          . $dbColType
+          . " DEFAULT "
+          . (
+            defined $tsch->{default}
+            ? personality->quoted_string( $tsch->{default} )
+            : "''"
+          );
+        personality->sql( 'do', $sql );
     }
 
     trace( 'Added ', $type, '.', $col . ' to the schema' ) if $TRACE{action};
@@ -608,24 +613,19 @@ sub insert {
             ASSERT( $tids && scalar @$tids ) if DEBUG;
 
             my $data = 'TODO: load and serialise attachments';
-
-            $dbh->do(
-                personality->encode_utf8(
-                        'UPDATE '
-                      . personality->safe_id( $TABLE_PREFIX . 'FILEATTACHMENT' )
-                      . " SET serialised='$data'"
-                      . " WHERE tid='$tids->[0]' AND name='$attachment'"
-                )
-            );
+            my $sql =
+                'UPDATE '
+              . personality->identifier( $TABLE_PREFIX . 'FILEATTACHMENT' )
+              . " SET serialised='$data'"
+              . " WHERE tid='$tids->[0]' AND name='$attachment'";
+            personality->sql( 'do', $sql );
         }
     }
     elsif ( $mo->topic() ) {
 
         # SMELL: concurrency? what if two topics are inserted at the same time?
         my $sql = "SELECT MAX(tid) FROM ${TABLE_PREFIX}topic";
-        trace($sql) if $TRACE{sql};
-        my $tid = $dbh->selectrow_array($sql)
-          || 1;
+        my $tid = personality->sql( 'selectrow_array', $sql ) || 1;
         $tid++;
         trace( 'Insert ', $mo->web, '.', $mo->topic, '@', $tid )
           if $TRACE{action};
@@ -636,11 +636,7 @@ sub insert {
         $sql =
 "INSERT INTO ${TABLE_PREFIX}topic (tid,web,name,text,raw) VALUES (?,?,?,?,?)";
         my @sqlp = ( $tid, $webName, $topicName, $text, $esf );
-        trace( $sql, '[',
-            map { ( ',', defined $_ ? _truncate( $_, 80 ) : 'NULL' ) } @sqlp,
-            ']' )
-          if $TRACE{sql};
-        $dbh->do( personality->encode_utf8($sql), {}, @sqlp );
+        personality->sql( 'do', $sql, {}, @sqlp );
 
         foreach my $type ( keys %$mo ) {
 
@@ -673,28 +669,14 @@ sub insert {
                 unshift( @kns, 'tid' );
                 my $sql =
                     'INSERT INTO '
-                  . personality->safe_id( $TABLE_PREFIX . $type ) . ' ('
-                  . join( ',', map { personality->safe_id($_) } @kns )
+                  . personality->identifier( $TABLE_PREFIX . $type ) . ' ('
+                  . join( ',', map { personality->identifier($_) } @kns )
                   . ") VALUES ("
                   . join( ',', map { '?' } @kns ) . ")";
                 shift(@kns);
 
-                trace(
-                    $sql, ' [',
-                    map {
-                        (
-                            ',',
-                            defined $item->{$_}
-                            ? _truncate( $item->{$_}, 80 )
-                            : 'NULL'
-                          )
-                      } @kns,
-                    ']'
-                ) if $TRACE{sql};
-
-                # We're using a do, so DBI can handle encoding the values
-                $dbh->do(
-                    $sql,
+                personality->sql(
+                    'do', $sql,
                     {},
                     $tid,
                     map {
@@ -751,30 +733,28 @@ sub remove {
                   . $mo->web
                   . "' AND name='"
                   . $mo->topic . "'";
-                trace($sql) if $TRACE{sql};
-                my $tid =
-                  $dbh->selectrow_array( personality->encode_utf8($sql) );
+                my $tid = personality->sql( 'selectrow_array', $sql );
                 ASSERT($tid) if DEBUG;
 
-                $dbh->do( 'UPDATE '
-                      . personality->safe_id( $TABLE_PREFIX . 'FILEATTACHMENT' )
-                      . " SET serialised=''"
-                      . " WHERE tid='$tid' AND name='$attachment'" );
+                $sql =
+                    'UPDATE '
+                  . personality->identifier( $TABLE_PREFIX . 'FILEATTACHMENT' )
+                  . " SET serialised=''"
+                  . " WHERE tid='$tid' AND name='$attachment'";
+                personality->sql( 'do', $sql );
             }
         }
         else {
             trace( 'Remove ', $mo->web, '.', $mo->topic, '@', $tid )
               if $TRACE{action};
             my $sql = "SELECT name FROM ${TABLE_PREFIX}metatypes";
-            trace($sql) if $TRACE{sql};
-            my $tables = $dbh->selectcol_arrayref($sql);
+            my $tables = personality->sql( 'selectcol_arrayref', $sql );
             foreach my $table ( 'topic', @$tables ) {
-                $table = $TABLE_PREFIX . $table;
-                if ( personality->table_exists($table) ) {
-                    my $tn = personality->safe_id($table);
+                my $t = $TABLE_PREFIX . $table;
+                if ( personality->table_exists($t) ) {
+                    my $tn = personality->identifier($t);
                     $sql = "DELETE FROM $tn WHERE tid='$tid'";
-                    trace($sql) if $TRACE{sql};
-                    $dbh->do($sql);
+                    personality->sql( 'do', $sql );
                 }
             }
         }
@@ -802,8 +782,7 @@ sub rename {
 
         my $sql =
 "UPDATE ${TABLE_PREFIX}topic SET web = '$newWebName' WHERE web = '$oldWebName'";
-        trace($sql) if $TRACE{sql};
-        $dbh->do( personality->encode_utf8($sql) );
+        personality->sql( 'do', $sql );
     }
 }
 
@@ -815,8 +794,7 @@ Perform an SQL query on the database, returning the return value.
 
 May throw an exception if there is an error in the SQL.
 
-The return value is decoded to the site charset (or unicode if
-$Foswiki::UNICODE)
+The return value is decoded to the site charset.
 
 =cut
 
@@ -824,10 +802,16 @@ sub query {
     my $sql = shift;
 
     getDBH();
-    trace($sql) if $TRACE{action};
-    my $sth = $dbh->prepare($sql);
+    my $sth = personality->sql( 'prepare', $sql );
     $sth->execute();
-    return utf82site( $sth->fetchall_arrayref() );
+    my $rv = $sth->fetchall_arrayref();
+    $rv = _applyToStrings(
+        $rv,
+        sub {
+            return uc2site( personality->from_db( $_[0] ) );
+        }
+    );
+    return $rv;
 }
 
 =begin TML
@@ -859,18 +843,17 @@ sub reset {
     );
     if ( personality->table_exists("${TABLE_PREFIX}metatypes") ) {
         my $sql = "SELECT name FROM ${TABLE_PREFIX}metatypes";
-        trace($sql) if $TRACE{sql};
-        my $mts = $dbh->selectcol_arrayref($sql);
+        my $mts = personality->sql( 'selectcol_arrayref', $sql );
         foreach my $t (@$mts) {
-            $tables{ personality->decode_utf8($t) } = 1;
+            $t = personality->from_db($t);
+            $tables{$t} = 1;
         }
     }
 
     foreach my $table ( keys %tables ) {
         if ( personality->table_exists($table) ) {
-            my $sql = 'DROP TABLE ' . personality->safe_id($table);
-            trace($sql) if $TRACE{sql};
-            $dbh->do( personality->encode_utf8($sql) );
+            my $sql = 'DROP TABLE ' . personality->identifier($table);
+            personality->sql( 'do', $sql );
         }
     }
 

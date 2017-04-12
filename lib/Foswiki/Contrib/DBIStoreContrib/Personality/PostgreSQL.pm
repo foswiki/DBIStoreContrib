@@ -72,9 +72,9 @@ sub startup {
     ASSERT( $this->{dbh} ) if DEBUG;
     $this->{dbh}->{AutoCommit} = 1;
 
-    #    $this->{dbh}->do('\\set ON_ERROR_ROLLBACK true');
-    $this->{dbh}->do("SET client_min_messages = 'warning'");
-    $this->{dbh}->do(<<'DO');
+    #    $this->sql('do', '\\set ON_ERROR_ROLLBACK true');
+    $this->sql( 'do', "SET client_min_messages = 'warning'" );
+    $this->sql( 'do', <<'DO');
 CREATE OR REPLACE FUNCTION make_number(TEXT) RETURNS NUMERIC AS $$
 DECLARE i NUMERIC;
 BEGIN
@@ -87,9 +87,8 @@ $$ LANGUAGE PLPGSQL IMMUTABLE STRICT;
 DO
 }
 
-# No encoding/decoding requied, the driver does it for us
-sub encode_utf8 { return $_[1]; }
-sub decode_utf8 { return $_[1]; }
+# No encoding/decoding requied, the driver does it for us, so no need
+# for sql() or from_db()
 
 sub is_true {
     my ( $this, $type, $sql ) = @_;

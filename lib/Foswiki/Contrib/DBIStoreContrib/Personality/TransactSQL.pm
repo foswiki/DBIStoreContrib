@@ -7,7 +7,7 @@ use strict;
 use warnings;
 
 use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
-  BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
+  BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL trace %TRACE);
 use Foswiki::Contrib::DBIStoreContrib::Personality ();
 our @ISA = ('Foswiki::Contrib::DBIStoreContrib::Personality');
 
@@ -40,10 +40,6 @@ sub new {
     $this->{true_value} = 'CAST(1 AS BIT)';
     $this->{true_type}  = PSEUDO_BOOL;
 
-    # Override the default type in the schema
-    $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{_DEFAULT}{type} =
-      'VARCHAR(MAX)';
-
     return $this;
 }
 
@@ -51,18 +47,17 @@ sub startup {
     my ( $this, $dbh ) = @_;
     $this->SUPER::startup($dbh);
 
-    $this->{dbh}->do('set QUOTED_IDENTIFIER ON');
+    $this->sql( 'do', 'set QUOTED_IDENTIFIER ON' );
 
     # There's no way in T-SQL to conditionally create a function
     # without using dynamic SQL, so we have to do this the hard way.
-    my $exists = $this->{dbh}->do(<<'SQL');
-SELECT 1 WHERE OBJECT_ID('dbo.foswiki_CONVERT') IS NOT NULL
-SQL
+    my $sql = "SELECT 1 WHERE OBJECT_ID('dbo.foswiki_CONVERT') IS NOT NULL";
+    my $exists = $this->sql( 'do', $sql );
 
     if ( $exists == 0 ) {
 
         # Error-tolerant number conversion. Works like perl.
-        $this->{dbh}->do(<<'SQL');
+        $sql = <<'SQL';
 CREATE FUNCTION foswiki_CONVERT( @value VARCHAR(MAX) ) RETURNS FLOAT AS
  BEGIN
   IF @value LIKE '%[^-+0-9eE]%' RETURN 0
@@ -93,7 +88,26 @@ CREATE FUNCTION foswiki_CONVERT( @value VARCHAR(MAX) ) RETURNS FLOAT AS
   RETURN CONVERT(FLOAT, @value)
  END
 SQL
+        $this->sql( 'do', $sql );
     }
+}
+
+# SQL server is crap at international character support. We take a
+# rather cavalier approach and convert to HTML entities. We then
+# convert back on return. The encoding isn't symmetrical, but in
+# the application it should be OK.
+sub to_db {
+    return Encode::encode( 'iso-8859-15', $_[1], Encode::FB_XMLCREF );
+}
+
+sub from_db {
+
+    # Do what works. High bit characters from the iso-8859-1 encoding
+    # are returned encoded using UTF8. So we have to decode those, then
+    # unwrap the FB_XMLCREF encoded chars.
+    my $s = Encode::decode( 'utf-8', $_[1] );
+    $s =~ s/&#x([A-Fa-f0-9]+);/chr(hex($1))/ge;
+    return $s;
 }
 
 sub is_true {

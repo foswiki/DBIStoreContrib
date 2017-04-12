@@ -14,10 +14,10 @@ Works as a mirror of an existing store (e.g. PlainFile, RCS)
    2. With just structured queries performed using SQL _or_
    3. Simply to support other clients querying data using SQL.
 
-The extension has been designed to be *fully compatible* with existing
-=%SEARCH= expressions, and is usable with all well-written extensions
-(those that have been written to use the Foswiki::Func API, and do not
-perform direct-to-disk file operations.)
+The extension has been designed to be *as compatible as possible* with
+existing =%SEARCH= expressions, and is usable with all well-written
+extensions (those that have been written to use the Foswiki::Func API,
+and do not perform direct-to-disk file operations.)
 
 It has "personality modules" that support the following SQL implementations:
    * [[http://www.sqlite.org/][SQLite]]
@@ -26,7 +26,7 @@ It has "personality modules" that support the following SQL implementations:
    * [[www.microsoft.com/SQL][Microsoft SQL Server (Transact-SQL)]]
 
 Note that there are many different versions of these databases and
-compatibility with any given version cannot be guaranteed.
+full compatibility with any given version cannot be guaranteed.
 
 ---++ Database Schema
 The database schema must reflect 1:1 the structure of data in Foswiki
@@ -46,7 +46,7 @@ this hash represent:
            declaration_ e.g. =_DATE=.
 
 ---+++ Declaring tables
-Some basic tables must always exist in the schema:
+Some basic administrative tables must always exist in the schema:
 
 =topic= %BR%
 Contains all wiki topics.
@@ -65,6 +65,10 @@ for example, the table =TOPICINFO= corresponds to the
 =%<nop>META:TOPICINFO= found at the top of all (raw) topics. Each
 column in these tables corresponds to an attribute in the
 corresponding =%<nop>META:=.
+
+If the default names of tables would conflict with other uses in the
+database, you can define an optional prefix to be used on table names
+in =configure=.
 
 ---+++ Automatically extending the schema
 The schema should normally specify a table for every =%<nop>META:=
@@ -97,6 +101,9 @@ Columns are defined in a Perl hash containing attributes:
     stored in the DB will be truncated to that length. This only
     affects searching. If =truncate=_to is not set, then trying to
     store a value longer than the field accepts will be an error.
+   * =default= can be used to provide a default for the column. For
+    most DBs this isn't required, but it may be needed with SQL
+    Server.
    * =unique= may be set to the name of a uniqueness constraint (see
      below)
    * =primary= if true, the column will be the PRIMARY KEY for the
@@ -219,12 +226,20 @@ store. You can use =tools/dbistore_manage.pl= to do this.
 $ cd bin
 $ perl ../tools/dbistore_manage.pl --help
 </verbatim>
-for more information on resetting the entire database or loading or
-updating individual topics (for example, if a program outside Foswiki
-changes the store).
+will give details.
 
 The =dbistore_manage.pl= program also allows you to run Foswiki search
 queries and SQL statements against the database from the command-line.
+
+The best approach when initially setting up a DB is to pick a specific
+topic and load it. For example,
+<verbatim>
+$ perl ../tools/dbistore_manage.pl --reset --load Sandbox.TestTopic --query "web='Sandbox' AND topic='TestTopic'"
+</verbatim>
+If you are using !PostgreSQL, !MySQL or !SQLite, the default schema
+should work fine for you. However if you are using SQL Server, you
+will have to tweak the schema as descibed in "SQL Server Notes",
+below.
 
 ---+++ Testing
 
@@ -240,6 +255,7 @@ FLUSH PRIVILEGES;
 CREATE DATABASE foswiki;
 ALTER DATABASE foswiki COLLATE utf8_unicode_ci;
 </verbatim>
+We assume a UTF-8 encoding.
 
 ---+++ Postgresql Notes
 Here's how the test environment (where the database server is running
@@ -248,9 +264,16 @@ on the same host as Foswiki) is set up:
 CREATE USER foswiki PASSWORD 'foswiki';
 CREATE DATABASE foswiki;
 </verbatim>
+We allow the DBD driver to handle the encoding. This will usually be
+UTF-8.
 
 ---+++ Microsoft SQL Server Notes
-SQL Server is supported via DBD::ODBC.
+SQL Server is supported via ODBC. Installing and configuring ODBC on
+the server is beyond the scope of this document, however note if you
+are using FreeTDS, you are recommended to set the TDS_Version in
+=odbc.ini= to =0=, or you may get strange encoding problems.
+
+http://www.freetds.org/userguide/choosingtdsprotocol.htm#FTN.AEN870
 
 ---++++ Encoding
 Make sure you set a collation sequence for the database. For example,
@@ -261,17 +284,23 @@ Without this, upper and lower case strings will be compared
 case-insensitively, and the DB will be unable to distinguish
 =ThisTopicName= and =THISTOPICNAME=.
 
-Unicode support in SQL Server consists of the obsolete UCS-2 encoding,
-which uses 2 bytes per character. If you are using mainly western
-characters with only a few high-bit characters, this is staggeringly
-inefficient. Further, every other driver supports UTF-8, so we made
-the decision to store byte strings and UTF-8 encode them before
-storing in the DB. Because UTF-8 is a superset of ASCII, most English
-language users will find this quite satisfactory. Users of other
-western scripts that include diacritical marks will probably encounter
-collation (sorting) issues when accessing data directly. SQL Server
-does not have a UTF-8 collation. Users of non-western scripts are
-recommended to use a different database.
+Unicode support in SQL Server consists of the UTF-16 encoding, which
+uses 2 bytes per character. If you are using mainly western characters
+with only a few high-bit characters, this is staggeringly inefficient,
+but is the only international character set support available. However
+while there is DBD support for unicode conversion, to/from UTF-16, we
+found it extremely difficult to configure and concluded it was not
+worth the effort.
+
+So we decided to use an ISO-8859-15 encoding in the database. Most
+users of western scripts that include diacritical marks supported by
+this charset should be fine. Support for characters outside of this
+character set is done by encoding to XML entities, and decoding the
+return. This is not a symmetrical encoding, but should work OK for
+this application.
+
+Users of non-western character sets are strongly recommended to use
+a RDBMS that supports an efficient encoding e.g. UTF-8.
 
 ---++++ Authentication
 If you are using Windows authentication for access to the database
@@ -288,11 +317,17 @@ module requires the user function =dbo.fn_RegExIsMatch= to stub the
 =.NET= !RegEx class. Instructions for building and installing this
 user function can be found at
 http://www.codeproject.com/Articles/19502/A-T-SQL-Regular-Expression-Library-for-SQL-Server
-This module has not been tested with Unicode characters.
+
+---++++ Schema
+SQL Server has limited support for data types, and depending on the
+version you are running you will need to replace =TEXT= types with
+a =VARCHAR= type. Note that index fields are limited to 900 bytes.
 
 ---+++ SQLite Notes
 SQLite requires the =pcre= module to be installed to support regular
 expression searches. The path to this module is set up in =configure=.
+We allow the DBD driver to handle the encoding. This will usually
+be UTF-8.
 
 ---++ How it works
 ---+++ Searches and Queries

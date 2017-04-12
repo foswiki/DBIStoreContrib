@@ -6,9 +6,9 @@ use warnings;
 use Assert;
 use Encode ();
 
-# Import type constants
-use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
-  BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL
+# Import type constants and tracing
+use Foswiki::Contrib::DBIStoreContrib qw(
+  NAME NUMBER STRING UNKNOWN BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL
   trace %TRACE);
 
 # We try to use the ANSI SQL standard as far as possible, for the most
@@ -71,36 +71,86 @@ sub reserve {
 
 =begin TML
 
----++ ObjectMethod encode_utf8($s) -> $e
+---++ ObjectMethod sql($fn, $sql, ...) -> $rv
 
-Some drivers require you to encode to UTF8 (DBD::SQLite), and some don't
-(DBD::Pg). The default is to encode.
+Prepare a unicode SQL string for passing to a DBI function, and call
+the function passing parameters. Returns the return value from the
+call.
+   * $fn is the name of the DBI function
+   * $sql is the (unicode) SQL
+   * ... are any additional parameters
+
+Some drivers require you to encode unicode to a different charset,
+and some happily accept unicode. The default is to not encode.
 
 =cut
 
-sub encode_utf8 {
+sub _truncate {
+    my ( $data, $size ) = @_;
+    return $data unless length($data) > $size;
+    return substr( $data, 0, $size - 3 ) . '...';
+}
+
+sub sql {
     my $this = shift;
-    return Encode::encode_utf8( $_[0] );
+    my $fn   = shift;
+    my $sql  = $this->to_db(shift);
+    if ( $TRACE{sql} ) {
+        trace($sql);
+        if ( scalar(@_) ) {
+            my @clean = map {
+                defined $_
+                  ? "'" . _truncate( $this->to_db($_), 20 ) . "'"
+                  : 'undef'
+            } @_;
+            trace( ' [' . join( ', ', @clean ) . ']' );
+        }
+    }
+
+    # Convert params to DB charset
+    my @converted =
+      map { ( !defined($_) || ref($_) ) ? $_ : $this->to_db($_) } @_;
+
+    # And make the call
+    return $this->{dbh}->$fn( $sql, @converted );
 }
 
 =begin TML
 
----++ ObjectMethod decode_utf8($e) -> $s
+---++ ObjectMethod to_db($ucs) -> $ds
 
-Some drivers require you to decode from UTF8 (DBD::SQLite), and some don't
-(DBD::Pg)
+Encode a string for passing to a DBI function. Some drivers require
+you to encode to a different charset, and some don't. Default is
+to not encode.
+   * $ucs - string to encode
+Return the driver-encoded version of $ucs
 
 =cut
 
-sub decode_utf8 {
-    my $this = shift;
-    return Encode::decode_utf8( $_[0] );
+sub to_db {
+    return $_[1];
+}
+
+=begin TML
+
+---++ ObjectMethod from_db($ds) -> $ucs
+
+Decode a string returned from a DBI function. Some drivers require
+you to decode from a different charset, and some don't. Default is
+to not decode.
+   * $ds - string in a result returned from a DBI call
+Return the unicode version of $ds
+
+=cut
+
+sub from_db {
+    return $_[1];
 }
 
 =begin TML
 
 ---++ ObjectMethod startup($dbh)
-Execute any SQL commands required to start the DB in ANSI mode.
+Execute any SQL commands required to start the DB.
 Subclasses must call superclass.
 
 =cut
@@ -121,17 +171,13 @@ must exist.
 
 sub table_exists {
     my $this = shift;
-    my $tables = join( ',', map { $this->safe_data($_) } @_ );
+    my $tables = join( ',', map { $this->quoted_string($_) } @_ );
     ASSERT( $this->{dbh} ) if DEBUG;
 
     # MySQL, Postgresql, MS SQL Server
-    my $sql = <<SQL;
-SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
- WHERE TABLE_NAME IN ($tables)
-SQL
-
-    trace($sql) if $TRACE{sql};
-    my $rows = $this->{dbh}->selectall_arrayref( $this->encode_utf8($sql) );
+    my $sql = 'SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES'
+      . " WHERE TABLE_NAME IN ($tables)";
+    my $rows = $this->sql( 'selectall_arrayref', $sql );
     return scalar(@$rows) == scalar(@_);
 }
 
@@ -152,9 +198,9 @@ SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
  WHERE TABLE_NAME = '$table'
 SQL
 
-    trace($sql) if $TRACE{sql};
-    my $s = $this->{dbh}->selectall_arrayref( $this->encode_utf8($sql) );
-    return { map { ( $_->[0] => $_->[1] ) } @$s };
+    my $s = $this->sql( 'selectall_arrayref', $sql );
+    return { map { ( $this->from_db( $_->[0] ) => $this->from_db( $_->[1] ) ) }
+          @$s };
 }
 
 =begin TML
@@ -259,40 +305,37 @@ sub length {
 
 =begin TML
 
----++ ObjectMethod safe_id($id) -> $safeid
+---++ ObjectMethod identifier($id) -> $safeid
 
 Make sure the ID is safe to use in this dialect of SQL.
 Unsafe IDs should be quoted using the dialect's identifier
 quoting rule.
 
 The default is to double-quote all identifiers.
- If $this->no_high_bit()
-is true, then all high-bit characters are encoded as XN where N is the
-decimal codepoint of the character.
 
 Note that this is only used on idenitifers derived from Foswiki data
 e.g. table and column names.
 
 =cut
 
-sub safe_id {
+sub identifier {
     my ( $this, $id ) = @_;
 
     # blunt instrument - protect against all non-word chars
-    $id =~ s/([^\w])/'X'.ord("\1")/ges;
+    $id =~ s/([^\w])/'X'.ord($1)/ges;
     return "\"$id\"";
 }
 
 =begin TML
 
----++ ObjectMethod safe_data($data) -> $safedata
+---++ ObjectMethod quoted_string($data) -> $safedata
 Make sure the data is safe to use in this dialect of SQL.
 Unsafe data should be quoted using the dialect's data
 quoting rule. The default is to single-quote all identifiers.
 
 =cut
 
-sub safe_data {
+sub quoted_string {
     my ( $this, $data ) = @_;
 
     # double up single quotes

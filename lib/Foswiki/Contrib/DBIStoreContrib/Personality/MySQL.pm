@@ -49,11 +49,21 @@ sub startup {
     $this->SUPER::startup($dbh);
 
     # MySQL has to be kicked in the ANSIs
-    $this->{dbh}->do("SET sql_mode='ANSI'");
-    $this->{dbh}->do('SELECT @sql_mode');
+    $this->sql( 'do', "SET sql_mode='ANSI'" );
+    $this->sql( 'do', 'SELECT @sql_mode' );
 
     # set to UTF8
-    $this->{dbh}->do("SET NAMES utf8");
+    $this->sql( 'do', 'SET NAMES utf8' );
+}
+
+# MySQL driver wants everything handed to it on a plate
+sub to_db {
+    return Encode::encode_utf8( $_[1] );
+}
+
+# MySQL driver wants you to deal with its crap
+sub from_db {
+    return Encode::decode_utf8( $_[1] );
 }
 
 sub regexp {

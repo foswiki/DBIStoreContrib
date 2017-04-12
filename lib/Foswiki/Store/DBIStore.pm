@@ -29,6 +29,7 @@ use Foswiki::Sandbox                            ();
 use Foswiki::Iterator::NumberRangeIterator      ();
 use Foswiki::Users::BaseUserMapping             ();
 use Foswiki::Contrib::DBIStoreContrib::DBIStore ();
+use Foswiki::Contrib::DBIStoreContrib qw(%TRACE trace personality);
 
 my $wptn = "/$Foswiki::cfg{WebPrefsTopicName}.txt";
 
@@ -969,41 +970,41 @@ sub _metaFile {
 # Get the number of revisions for a topic or attachment
 sub _numRevisions {
     my ( $revs, $meta, $attachment ) = @_;
+    my $sql;
 
-    Foswiki::Contrib::DBIStoreContrib::_connect();
+    Foswiki::Contrib::DBIStoreContrib::getDBH();
     my $r;
     if ($attachment) {
-        my $r = $Foswiki::Contrib::DBIStoreContrib::dbh->selectall_arrayref(
-                "SELECT \"FILEATTACHMENT\".version"
-              . " FROM \"FILEATTACHMENT\",\"TOPICINFO\",topic"
-              . " WHERE "
-              . join(
-                ' AND ',
+        my $sql =
+            "SELECT \"${TABLE_PREFIX}FILEATTACHMENT\".version"
+          . " FROM \"FILEATTACHMENT\",\"TOPICINFO\",${TABLE_PREFIX}topic"
+          . " WHERE "
+          . join(
+            ' AND ',
 
-                #                   "NOT topic.\"isHistory\"",
-                "topic.web='" . $meta->web() . "'",
-                "topic.name='" . $meta->topic() . "'",
-                "\"TOPICINFO\".tid=topic.tid",
-                "\"FILEATTACHMENT\".tid=topic.tid"
-              )
-        );
-
+            #                   "NOT topic.\"isHistory\"",
+            "${TABLE_PREFIX}topic.web='" . site2uc( $meta->web ) . "'",
+            "${TABLE_PREFIX}topic.name='" . site2uc( $meta->topic ) . "'",
+            "\"${TABLE_PREFIX}TOPICINFO\".tid=${TABLE_PREFIX}topic.tid",
+            "\"${TABLE_PREFIX}FILEATTACHMENT\".tid=${TABLE_PREFIX}topic.tid"
+          );
+        $r = personality->sql( 'selectall_arrayref', $sql );
     }
     else {
         # Get all versions
-        $r = $Foswiki::Contrib::DBIStoreContrib::dbh->selectall_arrayref(
-                "SELECT \"TOPICINFO\".version"
-              . " FROM topic,\"TOPICINFO\""
-              . " WHERE "
-              . join(
-                ' AND ',
+        $sql =
+            "SELECT \"${TABLE_PREFIX}TOPICINFO\".version"
+          . " FROM ${TABLE_PREFIX}topic,\"${TABLE_PREFIX}TOPICINFO\""
+          . " WHERE "
+          . join(
+            ' AND ',
 
-                #                   "NOT topic.\"isHistory\"",
-                "topic.web='" . $meta->web() . "'",
-                "topic.name='" . $meta->topic() . "'",
-                "\"TOPICINFO\".tid=topic.tid"
-              )
-        );
+            #                   "NOT topic.\"isHistory\"",
+            "${TABLE_PREFIX}topic.web='" . site2uc( $meta->web ) . "'",
+            "${TABLE_PREFIX}topic.name='" . site2uc( $meta->topic ) . "'",
+            "\"${TABLE_PREFIX}TOPICINFO\".tid=${TABLE_PREFIX}topic.tid"
+          );
+        $r = personality->sql( 'selectall_arrayref', $sql );
     }
     my @r = reverse sort { $a->[0] <=> $b->[0] } @$r;
 

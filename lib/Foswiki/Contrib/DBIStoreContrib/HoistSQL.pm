@@ -393,7 +393,7 @@ sub _hoist {
             if ( $name =~ /^META:(\w+)$/ ) {
 
                 # Name of a table
-                $result{sql} = personality->safe_id( $TABLE_PREFIX . $1 );
+                $result{sql} = personality->identifier( $TABLE_PREFIX . $1 );
                 $result{is_table_name} = 1;
                 $result{type}          = STRING;
             }
@@ -404,7 +404,7 @@ sub _hoist {
             else {
 
                 # Name of a field
-                $name = personality->safe_id($name);
+                $name = personality->identifier($name);
                 $result{sql} = $in_table ? "$in_table.$name" : $name;
                 $result{type} = STRING;
             }
@@ -480,7 +480,8 @@ sub _hoist {
             push( @selects, $result{sel} );
         }
         elsif ( $lhs{is_table_name} ) {
-            push( @selects, "$alias." . personality->safe_id( $result{sel} ) );
+            push( @selects,
+                "$alias." . personality->identifier( $result{sel} ) );
         }
         else {
             _abort( "Expected a table on the LHS of '.':", $node );
@@ -512,7 +513,7 @@ sub _hoist {
             my $tnames = _alias(__LINE__);
             push( @selects, _AS( $lhs{sql} => $tnames ) );
             my $tname_sel = $tnames;
-            $tname_sel = "$tnames." . personality->safe_id( $lhs{sel} )
+            $tname_sel = "$tnames." . personality->identifier( $lhs{sel} )
               if $lhs{sel};
             $lhs_where = "($topic_alias.name=$tname_sel OR ($wtn)=$tname_sel)";
         }
@@ -654,8 +655,10 @@ sub _hoist {
                         $node
                     );
                 }
-                my $l_sel = "$lhs_alias." . personality->safe_id( $lhs{sel} );
-                my $r_sel = "$rhs_alias." . personality->safe_id( $rhs{sel} );
+                my $l_sel =
+                  "$lhs_alias." . personality->identifier( $lhs{sel} );
+                my $r_sel =
+                  "$rhs_alias." . personality->identifier( $rhs{sel} );
 
                 my ( $expr, $optype ) = &$opfn(
                     $l_sel => $lhs{type},
@@ -755,7 +758,7 @@ sub _genSingleTableSELECT {
 
     my $alias = _alias(__LINE__);
     my $sel   = $alias;
-    $sel = "$alias." . personality->safe_id( $table->{sel} )
+    $sel = "$alias." . personality->identifier( $table->{sel} )
       if $table->{sel};
 
     $result->{sel}        = _alias(__LINE__);
