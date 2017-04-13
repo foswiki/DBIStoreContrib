@@ -37,9 +37,9 @@ sub startup {
 
     # Load PCRE, required for regexes
     $this->{dbh}->sqlite_enable_load_extension(1);
-    my $sql = "SELECT load_extension('"
-      . $Foswiki::cfg{Extensions}{DBIStoreContrib}{SQLite}{PCRE} . "')";
-    $this->sql( 'prepare', $sql );
+    $this->sql( "SELECT load_extension('"
+          . $Foswiki::cfg{Extensions}{DBIStoreContrib}{SQLite}{PCRE}
+          . "')" );
 }
 
 # Driver handles unicode, no need to encode on call, can use the default
@@ -49,18 +49,21 @@ sub from_db { return Encode::decode_utf8( $_[1] ); }
 # Need to decode utf8 coming back from the DB, su use the default personality
 
 sub table_exists {
-    my $this   = shift;
-    my $tables = join( ',', map { $this->quoted_string($_) } @_ );
-    my $sql    = "SELECT name FROM sqlite_master WHERE type='table'"
-      . " AND name IN ($tables)";
-    my @rows = $this->sql( 'selectrow_array', $sql );
-    return scalar(@rows);
+    my $this = shift;
+    my $phs  = join( ',', map { '?' } @_ );
+    my $sth  = $this->sql(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+          . " AND name IN ($phs)",
+        @_
+    );
+    my @rows = $sth->fetchall_array();
+    return scalar(@rows) == scalar(@_);
 }
 
 sub get_columns {
     my ( $this, $table, $column ) = @_;
-    my $sql = "PRAGMA table_info(" . $this->quoted_string($table) . ')';
-    my $rows = $this->sql( 'selectall_arrayref', $sql );
+    my $sth  = $this->sql("PRAGMA table_info($table)");
+    my $rows = $sth->fetchall_arrayref();
     return { map { $this->from_db( $_->[1] ) => $this->from_db( $_->[2] ) }
           @$rows };
 }

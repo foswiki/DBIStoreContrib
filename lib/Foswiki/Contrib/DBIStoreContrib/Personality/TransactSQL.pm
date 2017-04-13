@@ -7,6 +7,7 @@ use strict;
 use warnings;
 
 use Encode ();
+use DBI qw(:sql_types);
 
 use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
   BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL trace %TRACE);
@@ -50,14 +51,14 @@ sub startup {
     my ( $this, $dbh ) = @_;
     $this->SUPER::startup($dbh);
 
-    $this->sql( 'do', 'set QUOTED_IDENTIFIER ON' );
+    $dbh->do('set QUOTED_IDENTIFIER ON');
 
     # There's no way in T-SQL to conditionally create a function
     # without using dynamic SQL, so we have to do this the hard way.
-    my $sql = "SELECT 1 WHERE OBJECT_ID('dbo.foswiki_CONVERT') IS NOT NULL";
-    my $exists = $this->sql( 'do', $sql );
+    my $sql    = "SELECT 1 WHERE OBJECT_ID('dbo.foswiki_CONVERT') IS NOT NULL";
+    my $exists = $dbh->do($sql);
 
-    unless ($exists) {
+    if ( $exists == 0 ) {
 
         # Error-tolerant number conversion. Works like perl.
         $sql = <<'SQL';
@@ -91,18 +92,55 @@ CREATE FUNCTION foswiki_CONVERT( @value VARCHAR(MAX) ) RETURNS FLOAT AS
   RETURN CONVERT(FLOAT, @value)
  END
 SQL
-        $this->sql( 'do', $sql );
+        $dbh->do($sql);
     }
+}
+
+sub sql {
+    my $this = shift;
+    my $sql  = shift;
+
+    if ( $TRACE{sql} ) {
+        my @c = caller;
+        trace( $c[1], ':', $c[2] );
+        $this->traceSQL( $sql, @_ );
+    }
+
+    my $sth = $this->{dbh}->prepare($sql);
+
+    # Use SQL_VARBINARY simply to suppress charset checks in the
+    # DB, which otherwise barf on the UTF-8 we are storing. It doesn't
+    # seem to mind too much about short strings, but hates long ones. But
+    # binding using VARBINARY seems to work, even though the column
+    # on the DB is declared VARCHAR(max). Ho hum.
+    my $p = 1;
+    foreach my $arg (@_) {
+        if ( !defined $arg ) {
+            $sth->bind_param( $p++, '' );
+        }
+        elsif ( length($arg) <= 512 ) {
+            $sth->bind_param( $p++, $arg );
+        }
+        else {
+            $sth->bind_param( $p++, $arg, SQL_LONGVARBINARY );
+        }
+    }
+    $sth->execute();
+    return $sth;
 }
 
 # Enforce UTF8
 sub to_db {
+
+    return Encode::encode_utf8( $_[1] );
 
     # See System.DBIStoreContrib for an exhausting discussion
     return Encode::encode( 'cp1252', $_[1], Encode::FB_XMLCREF );
 }
 
 sub from_db {
+
+    return Encode::decode_utf8( $_[1] );
 
     # Convert from a byte string
     my $s = Encode::decode( 'cp1252', $_[1] );

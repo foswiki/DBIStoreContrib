@@ -73,8 +73,8 @@ sub startup {
     $this->{dbh}->{AutoCommit} = 1;
 
     #    $this->sql('do', '\\set ON_ERROR_ROLLBACK true');
-    $this->sql( 'do', "SET client_min_messages = 'warning'" );
-    $this->sql( 'do', <<'DO');
+    $this->sql("SET client_min_messages = 'warning'");
+    $this->sql(<<'DO');
 CREATE OR REPLACE FUNCTION make_number(TEXT) RETURNS NUMERIC AS $$
 DECLARE i NUMERIC;
 BEGIN

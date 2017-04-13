@@ -86,12 +86,11 @@ sub reserve {
 
 =begin TML
 
----++ ObjectMethod sql($fn, $sql, ...) -> $rv
+---++ ObjectMethod sql($sql, ...) -> $sth
 
-Prepare a unicode SQL string for passing to a DBI function, and call
-the function passing parameters. Returns the return value from the
-call.
-   * $fn is the name of the DBI function
+Prepare a unicode SQL string for passing to a DBI function, and
+execute it returning the statement handle. Returns the return
+value from the call.
    * $sql is the (unicode) SQL
    * ... are any additional parameters
 
@@ -107,30 +106,52 @@ sub _truncate {
     return substr( $data, 0, $size - length($len) ) . $len;
 }
 
+sub traceSQL {
+    my $this = shift;
+    my @sql = split( /(?)/, shift );
+
+    foreach (@sql) {
+        next if ( $_ ne '?' );
+        if ( !defined $_[0] ) {
+            $_ = 'undef';
+        }
+        elsif ( ref( $_[0] ) eq 'HASH' ) {
+            $_ = '{}';
+        }
+        elsif ( ref( $_[0] ) eq 'ARRAY' ) {
+            $_ = '[]';
+        }
+        else {
+            $_ = "'" . _truncate( $this->to_db( $_[0] ), 20 ) . "'";
+        }
+        shift;
+    }
+    trace(@sql);
+
+}
+
 sub sql {
     my $this = shift;
-    my $fn   = shift;
-    my $sql  = $this->to_db(shift);
+    my $sql  = shift;
+
     if ( $TRACE{sql} ) {
-        trace($sql);
-        if ( scalar(@_) ) {
-            my @clean = map {
-                   !defined $_ ? 'undef'
-                  : ref($_) eq 'HASH'  ? '{}'
-                  : ref($_) eq 'ARRAY' ? '[]'
-                  : "'"
-                  . _truncate( $this->to_db($_), 20 ) . "'"
-            } @_;
-            trace( ' [' . join( ', ', @clean ) . ']' );
-        }
+
+        #my @c = caller;
+        #trace($c[1], ':', $c[2]);
+        $this->traceSQL( $sql, @_ );
     }
 
-    # Convert params to DB charset
-    my @converted =
-      map { ( !defined($_) || ref($_) ) ? $_ : $this->to_db($_) } @_;
-
-    # And make the call
-    return $this->{dbh}->$fn( $sql, @converted );
+    my $sth = $this->{dbh}->prepare($sql);
+    my $p   = 1;
+    foreach my $arg (@_) {
+        $sth->bind_param( $p++, $arg );
+    }
+    eval { $sth->execute(); };
+    if ($@) {
+        die $@ if ( $sql =~ /^(INSERT|CREATE)/ );
+        trace( "WARNING: ", $@ );
+    }
+    return $sth;
 }
 
 =begin TML
@@ -175,13 +196,16 @@ must exist.
 
 sub table_exists {
     my $this = shift;
-    my $tables = join( ',', map { $this->quoted_string($_) } @_ );
     ASSERT( $this->{dbh} ) if DEBUG;
 
     # MySQL, Postgresql, MS SQL Server
-    my $sql = 'SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES'
-      . " WHERE TABLE_NAME IN ($tables)";
-    my $rows = $this->sql( 'selectall_arrayref', $sql );
+    my $phs = join( ',', map { '?' } @_ );
+    my $sth = $this->sql(
+        'SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE '
+          . "TABLE_NAME IN ($phs)",
+        @_
+    );
+    my $rows = $sth->fetchall_arrayref();
     return scalar(@$rows) == scalar(@_);
 }
 
@@ -197,9 +221,12 @@ sub get_columns {
     ASSERT( $this->{dbh} ) if DEBUG;
 
     # MySQL, Postgresql, MS SQL Server
-    my $sql = 'SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS'
-      . " WHERE TABLE_NAME = '$table'";
-    my $s = $this->sql( 'selectall_arrayref', $sql );
+    my $sth = $this->sql(
+        'SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS'
+          . " WHERE TABLE_NAME=?",
+        $table
+    );
+    my $s = $sth->fetchall_arrayref();
     my $res =
       { map { ( $this->from_db( $_->[0] ) => $this->from_db( $_->[1] ) ) }
           @$s };
@@ -327,23 +354,6 @@ sub identifier {
     # blunt instrument - protect against all non-word chars
     $id =~ s/([^\w])/'X'.ord($1)/ges;
     return "\"$id\"";
-}
-
-=begin TML
-
----++ ObjectMethod quoted_string($data) -> $safedata
-Make sure the data is safe to use in this dialect of SQL.
-Unsafe data should be quoted using the dialect's data
-quoting rule. The default is to single-quote all identifiers.
-
-=cut
-
-sub quoted_string {
-    my ( $this, $data ) = @_;
-
-    # double up single quotes
-    $data =~ s/'/''/g;
-    return "'$data'";
 }
 
 =begin TML

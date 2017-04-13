@@ -49,11 +49,11 @@ sub startup {
     $this->SUPER::startup($dbh);
 
     # MySQL has to be kicked in the ANSIs
-    $this->sql( 'do', "SET sql_mode='ANSI'" );
-    $this->sql( 'do', 'SELECT @sql_mode' );
+    $this->sql("SET sql_mode='ANSI'");
+    $this->sql('SELECT @sql_mode');
 
     # set to UTF8
-    $this->sql( 'do', 'SET NAMES utf8' );
+    $this->sql('SET NAMES utf8');
 }
 
 # MySQL driver wants everything handed to it on a plate

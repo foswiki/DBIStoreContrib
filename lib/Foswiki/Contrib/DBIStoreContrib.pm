@@ -262,8 +262,9 @@ sub getDBH {
         if ( $TRACE{action} ) {
 
             # Check metatypes integrity
-            my $sql = "SELECT name FROM ${TABLE_PREFIX}metatypes";
-            my $tables = personality->sql( 'selectcol_arrayref', $sql );
+            my $sth =
+              personality->sql("SELECT name FROM ${TABLE_PREFIX}metatypes");
+            my $tables = $sth->fetchall_arrayref();
             foreach my $table (@$tables) {
                 $table = personality->from_db($table);
                 unless ( personality->table_exists($table) ) {
@@ -286,47 +287,41 @@ sub _createTable {
     # Create table
     my @cols;
     my %constraint;    # indexed on constraint name
+    my $tn = personality->identifier( $TABLE_PREFIX . $tname );
+
     while ( my ( $cname, $cschema ) = each %$tschema ) {
 
         # resolve pseudo-type
         $cschema = $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$cschema}
           unless ( ref($cschema) );
         _basetype($cschema);
-        my $s = personality->identifier($cname) . ' ' . $cschema->{type};
+        my $csql = personality->identifier($cname) . ' ' . $cschema->{type};
         if ( $cschema->{primary} ) {
-            $s .= ' PRIMARY KEY';
+            $csql .= ' PRIMARY KEY';
         }
-        if ( defined $cschema->{default} ) {
-            $s .=
-              ' DEFAULT ' . personality->quoted_string( $cschema->{default} );
-        }
+        $csql .= " DEFAULT " . $dbh->quote( $cschema->{default} // '' );
         if ( defined $cschema->{unique} ) {
             ASSERT( $cschema->{unique} =~ /^[A-Za-z]+$/i ) if DEBUG;
             $constraint{ $cschema->{unique} } ||= [];
             push( @{ $constraint{ $cschema->{unique} } }, $cname );
         }
-        push( @cols, $s );
+        push( @cols, $csql );
     }
-    my $sn = personality->identifier( $TABLE_PREFIX . $tname );
     my $ok = 0;
     while ( my ( $cons, $set ) = each %constraint ) {
         push( @cols,
-                'CONSTRAINT '
-              . personality->identifier($cons)
-              . ' UNIQUE ('
+                "CONSTRAINT $cons UNIQUE ("
               . join( ',', map { personality->identifier($_) } @$set )
               . ')' );
         $ok = 1;
     }
-    my $cols = join( ',', @cols );
-    my $sql = "CREATE TABLE $sn ( $cols )";
-    personality->sql( 'do', $sql );
+    personality->sql( "CREATE TABLE $tn ( " . join( ',', @cols ) . ")" );
 
     # Add non-primary tables to the table of tables
     unless ( $tname eq 'topic' || $tname eq 'metatypes' ) {
-        my $sql = "INSERT INTO ${TABLE_PREFIX}metatypes (name) VALUES ( "
-          . personality->quoted_string("$TABLE_PREFIX$tname") . " )";
-        personality->sql( 'do', $sql );
+        personality->sql(
+            "INSERT INTO ${TABLE_PREFIX}metatypes (name) VALUES ( ? )",
+            $TABLE_PREFIX . $tname );
     }
 
     # Create indexes
@@ -336,12 +331,9 @@ sub _createTable {
         $cschema = $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$cschema}
           unless ( ref($cschema) );
         next unless ( $cschema->{index} );
-        my $sql =
-            'CREATE INDEX '
-          . personality->identifier("IX_${tname}_${cname}") . ' ON '
-          . personality->identifier( $TABLE_PREFIX . $tname ) . '('
-          . personality->identifier($cname) . ')';
-        personality->sql( 'do', $sql );
+        my $id = personality->identifier("IX_${tname}_${cname}");
+        $cname = personality->identifier($cname);
+        personality->sql("CREATE INDEX $id ON $tn ( $cname )");
     }
 }
 
@@ -366,14 +358,19 @@ sub _createTables {
 sub _getTIDs {
     my $mo = shift;
 
-    my $sql =
-        "SELECT tid FROM \"${TABLE_PREFIX}topic\" WHERE "
-      . ( $mo->topic ? ' name=\'' . site2uc( $mo->topic ) . '\' AND ' : '' )
-      . ' web=\''
-      . site2uc( $mo->web() ) . '\'';
+    my $sql = "SELECT tid FROM ${TABLE_PREFIX}topic WHERE web =?";
+
+    my @params = ( site2uc( $mo->web() ) );
+    if ( $mo->topic ) {
+        $sql .= " AND name=?";
+        push( @params, site2uc( $mo->topic ) );
+    }
+
+    my $sth = personality->sql( $sql, @params );
 
     # No need to decode, just numbers
-    return personality->sql( 'selectrow_arrayref', $sql );
+    my $res = $sth->fetchall_arrayref();
+    return $res;
 }
 
 =begin TML
@@ -568,19 +565,13 @@ sub _findOrCreateColumn {
     }
     else {
         # Must add the column to the DB
-        $dbColType = $tsch->{type};
-        my $sql =
-            'ALTER TABLE '
-          . personality->identifier( $TABLE_PREFIX . $type ) . ' ADD '
-          . personality->identifier($col) . ' '
-          . $dbColType
-          . " DEFAULT "
-          . (
-            defined $tsch->{default}
-            ? personality->quoted_string( $tsch->{default} )
-            : "''"
-          );
-        personality->sql( 'do', $sql );
+        my @params;
+        my $tn  = personality->identifier( $TABLE_PREFIX . $type );
+        my $cn  = personality->identifier($col);
+        my $sql = "ALTER TABLE $tn ADD $cn $tsch->{type} DEFAULT "
+          . $dbh->quote( $tsch->{default} // '' );
+
+        personality->sql( $sql, @params );
     }
 
     trace( 'Added ', $type, '.', $col . ' to the schema' ) if $TRACE{action};
@@ -621,30 +612,32 @@ sub insert {
             ASSERT( $tids && scalar @$tids ) if DEBUG;
 
             my $data = 'TODO: load and serialise attachments';
-            my $sql =
-                'UPDATE '
-              . personality->identifier( $TABLE_PREFIX . 'FILEATTACHMENT' )
-              . " SET serialised='$data'"
-              . " WHERE tid='$tids->[0]' AND name='$attachment'";
-            personality->sql( 'do', $sql );
+            personality->sql(
+"UPDATE ${TABLE_PREFIX}FILEATTACHMENT SET serialised=? WHERE tid=? AND name=?",
+                $data, $tids->[0], $attachment );
         }
     }
     elsif ( $mo->topic() ) {
 
         # SMELL: concurrency? what if two topics are inserted at the same time?
-        my $sql = "SELECT MAX(tid) FROM ${TABLE_PREFIX}topic";
-        my $tid = personality->sql( 'selectrow_array', $sql ) || 1;
+        my $sth = personality->sql("SELECT MAX(tid) FROM ${TABLE_PREFIX}topic");
+        my $mtid = $sth->fetchall_arrayref();
+        my $tid =
+          ( $mtid && $mtid->[0] && defined $mtid->[0]->[0] )
+          ? $mtid->[0]->[0]
+          : 1;
         $tid++;
         trace( 'Insert ', $mo->web, '.', $mo->topic, '@', $tid )
           if $TRACE{action};
-        my $text      = site2uc( $mo->text() );
-        my $esf       = site2uc( $mo->getEmbeddedStoreForm() );
-        my $webName   = site2uc( $mo->web() );
-        my $topicName = site2uc( $mo->topic() );
-        $sql =
-"INSERT INTO ${TABLE_PREFIX}topic (tid,web,name,text,raw) VALUES (?,?,?,?,?)";
-        my @sqlp = ( $tid, $webName, $topicName, $text, $esf );
-        personality->sql( 'do', $sql, {}, @sqlp );
+
+        personality->sql(
+"INSERT INTO ${TABLE_PREFIX}topic (tid,web,name,text,raw) VALUES (?,?,?,?,?)",
+            $tid,
+            site2uc( $mo->web() ),
+            site2uc( $mo->topic() ),
+            site2uc( $mo->text() ),
+            site2uc( $mo->getEmbeddedStoreForm() )
+        );
 
         foreach my $type ( keys %$mo ) {
 
@@ -664,7 +657,9 @@ sub insert {
             my $data = $mo->{$type};
 
             foreach my $item (@$data) {
-                my @kns;
+
+                # All tables have 'tid'
+                my @kns = ('tid');
 
                 # Check that the table has the columns to accept this data (or
                 # they can be added)
@@ -673,19 +668,12 @@ sub insert {
                     push( @kns, $col ) if $col;
                 }
 
-                # All tables have 'tid'
-                unshift( @kns, 'tid' );
-                my $sql =
-                    'INSERT INTO '
-                  . personality->identifier( $TABLE_PREFIX . $type ) . ' ('
-                  . join( ',', map { personality->identifier($_) } @kns )
-                  . ") VALUES ("
-                  . join( ',', map { '?' } @kns ) . ")";
-                shift(@kns);
-
+                my $phs = join( ',', map { '?' } @kns );
+                my $cns = join( ',', map { personality->identifier($_) } @kns );
+                shift(@kns);    # lose tid
+                my $tn = personality->identifier( $TABLE_PREFIX . $type );
                 personality->sql(
-                    'do', $sql,
-                    {},
+                    "INSERT INTO $tn ($cns) VALUES ($phs)",
                     $tid,
                     map {
                         defined $item->{$_}
@@ -736,33 +724,32 @@ sub remove {
             if ( $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}
                 {FILEATTACHMENT}{serialised} )
             {
-                my $sql =
-                    "SELECT tid FROM ${TABLE_PREFIX}topic WHERE web='"
-                  . $mo->web
-                  . "' AND name='"
-                  . $mo->topic . "'";
-                my $tid = personality->sql( 'selectrow_array', $sql );
+                my $sth = personality->sql(
+                    "SELECT tid FROM ? WHERE web=? AND name=?",
+                    $TABLE_PREFIX . 'topic',
+                    site2uc( $mo->web ),
+                    site2uc( $mo->topic )
+                );
+                my $tid = $sth->fetchall_array();
                 ASSERT($tid) if DEBUG;
 
-                $sql =
-                    'UPDATE '
-                  . personality->identifier( $TABLE_PREFIX . 'FILEATTACHMENT' )
-                  . " SET serialised=''"
-                  . " WHERE tid='$tid' AND name='$attachment'";
-                personality->sql( 'do', $sql );
+                personality->sql(
+"DELETE FROM ${TABLE_PREFIX}FILEATTACHMENT WHERE tid=? AND name=?",
+                    $tid, $attachment
+                );
             }
         }
         else {
             trace( 'Remove ', $mo->web, '.', $mo->topic, '@', $tid )
               if $TRACE{action};
-            my $sql = "SELECT name FROM ${TABLE_PREFIX}metatypes";
-            my $tables = personality->sql( 'selectcol_arrayref', $sql );
-            foreach my $table ( 'topic', @$tables ) {
-                my $t = $TABLE_PREFIX . $table;
+            my $sth =
+              personality->sql("SELECT name FROM ${TABLE_PREFIX}metatypes");
+            my $tables = $sth->fetchall_arrayref();
+            foreach my $tr ( ['topic'], @$tables ) {
+                my $t = $TABLE_PREFIX . $tr->[0];
                 if ( personality->table_exists($t) ) {
-                    my $tn = personality->identifier($t);
-                    $sql = "DELETE FROM $tn WHERE tid='$tid'";
-                    personality->sql( 'do', $sql );
+                    $t = personality->identifier($t);
+                    personality->sql( "DELETE FROM $t WHERE tid=?", $tid );
                 }
             }
         }
@@ -788,9 +775,8 @@ sub rename {
         my $oldWebName = site2uc( $mo->web() );
         my $newWebName = site2uc( $mn->web() );
 
-        my $sql =
-"UPDATE ${TABLE_PREFIX}topic SET web = '$newWebName' WHERE web = '$oldWebName'";
-        personality->sql( 'do', $sql );
+        my $sql = "UPDATE ${TABLE_PREFIX}topic SET web=? WHERE web=?";
+        personality->sql( $sql, $newWebName, $oldWebName );
     }
 }
 
@@ -810,9 +796,8 @@ sub query {
     my $sql = shift;
 
     getDBH();
-    my $sth = personality->sql( 'prepare', $sql );
-    $sth->execute();
-    my $rv = $sth->fetchall_arrayref();
+    my $sth = personality->sql($sql);
+    my $rv  = $sth->fetchall_arrayref();
     $rv = _applyToStrings(
         $rv,
         sub {
@@ -850,18 +835,18 @@ sub reset {
           keys %{ $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema} }
     );
     if ( personality->table_exists("${TABLE_PREFIX}metatypes") ) {
-        my $sql = "SELECT name FROM ${TABLE_PREFIX}metatypes";
-        my $mts = personality->sql( 'selectcol_arrayref', $sql );
+        my $sth = personality->sql("SELECT name FROM ${TABLE_PREFIX}metatypes");
+        my $mts = $sth->fetchall_arrayref();
         foreach my $t (@$mts) {
-            $t = personality->from_db($t);
+            $t = personality->from_db( $t->[0] );
             $tables{$t} = 1;
         }
     }
 
     foreach my $table ( keys %tables ) {
         if ( personality->table_exists($table) ) {
-            my $sql = 'DROP TABLE ' . personality->identifier($table);
-            personality->sql( 'do', $sql );
+            my $tn = personality->identifier($table);
+            personality->sql("DROP TABLE $tn");
         }
     }
 
