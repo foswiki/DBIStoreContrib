@@ -1011,296 +1011,297 @@ sub _numRevisions {
           . $TABLE_PREFIX
           . 'topic.tid',
         site2uc( $meta->web ),
-        site2uc( $meta->topic );
-          my $r = $sth->fetchall_arrayref();
-          my @r = reverse sort { $a->[0] <=> $b->[0] } @$r;
+        site2uc( $meta->topic )
+    );
+    my $r = $sth->fetchall_arrayref();
+    my @r = reverse sort { $a->[0] <=> $b->[0] } @$r;
 
-          return $r[0]->[0];
-    }
+    return $r[0]->[0];
+}
 
-    sub _readMetaFile {
-        my $mf = shift;
-        return () unless -e $mf;
-        return split( "\n", _readFile($mf), 2 );
-    }
+sub _readMetaFile {
+    my $mf = shift;
+    return () unless -e $mf;
+    return split( "\n", _readFile($mf), 2 );
+}
 
-    sub _writeMetaFile {
-        my $mf = shift;
-        _mkPathTo($mf);
-        _saveFile( $mf, join( "\n", map { defined $_ ? $_ : '' } @_ ) );
-    }
+sub _writeMetaFile {
+    my $mf = shift;
+    _mkPathTo($mf);
+    _saveFile( $mf, join( "\n", map { defined $_ ? $_ : '' } @_ ) );
+}
 
-    # Record a change in the web history
-    sub recordChange {
-        my $this = shift;
-        my %args = @_;
-        $args{more} ||= '';
-        ASSERT( $args{cuid} ) if DEBUG;
-        ASSERT( defined $args{more} ) if DEBUG;
+# Record a change in the web history
+sub recordChange {
+    my $this = shift;
+    my %args = @_;
+    $args{more} ||= '';
+    ASSERT( $args{cuid} ) if DEBUG;
+    ASSERT( defined $args{more} ) if DEBUG;
 
-        #    my ( $meta, $cUID, $rev, $more ) = @_;
-        #    $more ||= '';
+    #    my ( $meta, $cUID, $rev, $more ) = @_;
+    #    $more ||= '';
 
-        my $file = _getData( $args{_meta}->web ) . '/.changes';
-        my @changes;
-        my $text = '';
-        my $t    = time;
+    my $file = _getData( $args{_meta}->web ) . '/.changes';
+    my @changes;
+    my $text = '';
+    my $t    = time;
 
-        if ( -e $file ) {
-            my $cutoff = $t - $Foswiki::cfg{Store}{RememberChangesFor};
-            my $fh;
-            open( $fh, '<', $file )
-              or die "DBIStore: failed to read $file: $!";
-            local $/ = "\n";
-            my $head = 1;
-            while ( my $line = <$fh> ) {
-                chomp($line);
-                if ($head) {
-                    my @row = split( /\t/, $line, 4 );
-                    next if ( $row[2] < $cutoff );
-                    $head = 0;
-                }
-                $text .= "$line\n";
-            }
-            close($fh);
-        }
-
-        # Add the new change to the end of the file
-        $text .= $args{_meta}->topic || '.';
-        $text .= "\t$args{cuid}\t$t\t$args{revision}\t$args{more}\n";
-
-        _saveFile( $file, $text );
-    }
-
-    # Read an entire file
-    sub _readFile {
-        my ($name) = @_;
-
-        my $data;
-        my $IN_FILE;
-        open( $IN_FILE, '<', $name )
-          or die "DBIStore: failed to read $name: $!";
-        binmode($IN_FILE);
-        local $/ = undef;
-        $data = <$IN_FILE>;
-        close($IN_FILE);
-        $data = '' unless defined $data;
-        return $data;
-    }
-
-    # Open a stream onto a file
-    sub _openStream {
-        my ( $meta, $att, $mode, %opts ) = @_;
-        my $stream;
-
-        my $path;
-        my @revs;
-        if (   $opts{version}
-            && $opts{version} < _numRevisions( \@revs, $meta, $att ) )
-        {
-            ASSERT( $mode !~ />/ ) if DEBUG;
-            $path = _historyFile( $meta, $att, $opts{version} );
-        }
-        else {
-            $path = _latestFile( $meta, $att );
-            _mkPathTo($path) if ( $mode =~ />/ );
-        }
-        unless ( open( $stream, $mode, $path ) ) {
-            die("DBIStore: open stream $mode '$path' failed: $!");
-        }
-        binmode $stream;
-        return $stream;
-    }
-
-    # Save a file
-    sub _saveFile {
-        my ( $file, $text ) = @_;
-        _mkPathTo($file);
+    if ( -e $file ) {
+        my $cutoff = $t - $Foswiki::cfg{Store}{RememberChangesFor};
         my $fh;
-        open( $fh, '>', $file )
-          or die("DBIStore: failed to create file $file: $!");
-        flock( $fh, LOCK_EX )
-          or die("DBIStore: failed to lock file $file: $!");
-        binmode($fh)
-          or die("DBIStore: failed to binmode $file: $!");
-        print $fh $text
-          or die("DBIStore: failed to print into $file: $!");
-        close($fh)
-          or die("DBIStore: failed to close file $file: $!");
-
-        chmod( $Foswiki::cfg{Store}{filePermission}, $file );
-
-        return;
-    }
-
-    # Save a stream to a file
-    sub _saveStream {
-        my ( $file, $fh ) = @_;
-
-        _mkPathTo($file);
-        my $F;
-        open( $F, '>', $file ) or die "DBIStore: open $file failed: $!";
-        binmode($F) or die "DBIStore: failed to binmode $file: $!";
-        my $text;
-        while ( read( $fh, $text, 1024 ) ) {
-            print $F $text;
-        }
-        close($F) or die "DBIStore: close $file failed: $!";
-
-        chmod( $Foswiki::cfg{Store}{filePermission}, $file );
-    }
-
-    # Move a file or directory from one absolute file path to another.
-    # if the destination already exists it's an error.
-    sub _moveFile {
-        my ( $from, $to ) = @_;
-        die "DBIStore: move target $to already exists" if -e $to;
-        _mkPathTo($to);
-        my $ok;
-        if ( -d $from ) {
-            $ok = File::Copy::Recursive::dirmove( $from, $to );
-        }
-        else {
-            ASSERT( -e $from, $from ) if DEBUG;
-            $ok = File::Copy::move( $from, $to );
-        }
-        $ok or die "DBIStore: move $from to $to failed: $!";
-    }
-
-    # Copy a file or directory from one absolute file path to another.
-    # if the destination already exists it's an error.
-    sub _copyFile {
-        my ( $from, $to ) = @_;
-
-        die "DBIStore: move target $to already exists" if -e $to;
-        _mkPathTo($to);
-        my $ok;
-        if ( -d $from ) {
-            $ok = File::Copy::Recursive::dircopy( $from, $to );
-        }
-        else {
-            $ok = File::Copy::copy( $from, $to );
-        }
-        $ok or die "DBIStore: copy $from to $to failed: $!";
-    }
-
-    # Make all directories above the path
-    sub _mkPathTo {
-        my $file = shift;
-
-        ASSERT( File::Spec->file_name_is_absolute($file) ) if DEBUG;
-
-        my ( $volume, $path, undef ) = File::Spec->splitpath($file);
-        $path = File::Spec->catpath( $volume, $path, '' );
-
-        # SMELL:  Sites running Apache with SuexecUserGroup will
-        # have a forced "safe" umask. Override umask here to allow
-        # correct dirPermissions to be applied
-        umask( oct(777) - $Foswiki::cfg{Store}{dirPermission} );
-
-        eval {
-            File::Path::mkpath( $path, 0, $Foswiki::cfg{Store}{dirPermission} );
-        };
-        if ($@) {
-            die("DBIStore: failed to create ${path}: $!");
-        }
-    }
-
-    # Remove an entire directory tree
-    sub _rmtree {
-        my $root = shift;
-        my $D;
-        if ( opendir( $D, $root ) ) {
-            foreach my $entry ( grep { !/^\.+$/ } readdir($D) ) {
-                $entry =~ /^(.*)$/;
-                $entry = $root . '/' . $1;
-                if ( -d $entry ) {
-                    _rmtree($entry);
-                }
-                elsif ( !unlink($entry) && -e $entry ) {
-                    if ( $Foswiki::cfg{OS} ne 'WINDOWS' ) {
-                        die "DBIStore: Failed to delete file $entry: $!";
-                    }
-                    else {
-
-                        # Windows sometimes fails to delete files when
-                        # subprocesses haven't exited yet, because the
-                        # subprocess still has the file open. Live with it.
-                        warn "WARNING: Failed to delete file $entry: $!";
-                    }
-                }
+        open( $fh, '<', $file )
+          or die "DBIStore: failed to read $file: $!";
+        local $/ = "\n";
+        my $head = 1;
+        while ( my $line = <$fh> ) {
+            chomp($line);
+            if ($head) {
+                my @row = split( /\t/, $line, 4 );
+                next if ( $row[2] < $cutoff );
+                $head = 0;
             }
-            closedir($D);
+            $text .= "$line\n";
+        }
+        close($fh);
+    }
 
-            if ( !rmdir($root) ) {
+    # Add the new change to the end of the file
+    $text .= $args{_meta}->topic || '.';
+    $text .= "\t$args{cuid}\t$t\t$args{revision}\t$args{more}\n";
+
+    _saveFile( $file, $text );
+}
+
+# Read an entire file
+sub _readFile {
+    my ($name) = @_;
+
+    my $data;
+    my $IN_FILE;
+    open( $IN_FILE, '<', $name )
+      or die "DBIStore: failed to read $name: $!";
+    binmode($IN_FILE);
+    local $/ = undef;
+    $data = <$IN_FILE>;
+    close($IN_FILE);
+    $data = '' unless defined $data;
+    return $data;
+}
+
+# Open a stream onto a file
+sub _openStream {
+    my ( $meta, $att, $mode, %opts ) = @_;
+    my $stream;
+
+    my $path;
+    my @revs;
+    if (   $opts{version}
+        && $opts{version} < _numRevisions( \@revs, $meta, $att ) )
+    {
+        ASSERT( $mode !~ />/ ) if DEBUG;
+        $path = _historyFile( $meta, $att, $opts{version} );
+    }
+    else {
+        $path = _latestFile( $meta, $att );
+        _mkPathTo($path) if ( $mode =~ />/ );
+    }
+    unless ( open( $stream, $mode, $path ) ) {
+        die("DBIStore: open stream $mode '$path' failed: $!");
+    }
+    binmode $stream;
+    return $stream;
+}
+
+# Save a file
+sub _saveFile {
+    my ( $file, $text ) = @_;
+    _mkPathTo($file);
+    my $fh;
+    open( $fh, '>', $file )
+      or die("DBIStore: failed to create file $file: $!");
+    flock( $fh, LOCK_EX )
+      or die("DBIStore: failed to lock file $file: $!");
+    binmode($fh)
+      or die("DBIStore: failed to binmode $file: $!");
+    print $fh $text
+      or die("DBIStore: failed to print into $file: $!");
+    close($fh)
+      or die("DBIStore: failed to close file $file: $!");
+
+    chmod( $Foswiki::cfg{Store}{filePermission}, $file );
+
+    return;
+}
+
+# Save a stream to a file
+sub _saveStream {
+    my ( $file, $fh ) = @_;
+
+    _mkPathTo($file);
+    my $F;
+    open( $F, '>', $file ) or die "DBIStore: open $file failed: $!";
+    binmode($F) or die "DBIStore: failed to binmode $file: $!";
+    my $text;
+    while ( read( $fh, $text, 1024 ) ) {
+        print $F $text;
+    }
+    close($F) or die "DBIStore: close $file failed: $!";
+
+    chmod( $Foswiki::cfg{Store}{filePermission}, $file );
+}
+
+# Move a file or directory from one absolute file path to another.
+# if the destination already exists it's an error.
+sub _moveFile {
+    my ( $from, $to ) = @_;
+    die "DBIStore: move target $to already exists" if -e $to;
+    _mkPathTo($to);
+    my $ok;
+    if ( -d $from ) {
+        $ok = File::Copy::Recursive::dirmove( $from, $to );
+    }
+    else {
+        ASSERT( -e $from, $from ) if DEBUG;
+        $ok = File::Copy::move( $from, $to );
+    }
+    $ok or die "DBIStore: move $from to $to failed: $!";
+}
+
+# Copy a file or directory from one absolute file path to another.
+# if the destination already exists it's an error.
+sub _copyFile {
+    my ( $from, $to ) = @_;
+
+    die "DBIStore: move target $to already exists" if -e $to;
+    _mkPathTo($to);
+    my $ok;
+    if ( -d $from ) {
+        $ok = File::Copy::Recursive::dircopy( $from, $to );
+    }
+    else {
+        $ok = File::Copy::copy( $from, $to );
+    }
+    $ok or die "DBIStore: copy $from to $to failed: $!";
+}
+
+# Make all directories above the path
+sub _mkPathTo {
+    my $file = shift;
+
+    ASSERT( File::Spec->file_name_is_absolute($file) ) if DEBUG;
+
+    my ( $volume, $path, undef ) = File::Spec->splitpath($file);
+    $path = File::Spec->catpath( $volume, $path, '' );
+
+    # SMELL:  Sites running Apache with SuexecUserGroup will
+    # have a forced "safe" umask. Override umask here to allow
+    # correct dirPermissions to be applied
+    umask( oct(777) - $Foswiki::cfg{Store}{dirPermission} );
+
+    eval {
+        File::Path::mkpath( $path, 0, $Foswiki::cfg{Store}{dirPermission} );
+    };
+    if ($@) {
+        die("DBIStore: failed to create ${path}: $!");
+    }
+}
+
+# Remove an entire directory tree
+sub _rmtree {
+    my $root = shift;
+    my $D;
+    if ( opendir( $D, $root ) ) {
+        foreach my $entry ( grep { !/^\.+$/ } readdir($D) ) {
+            $entry =~ /^(.*)$/;
+            $entry = $root . '/' . $1;
+            if ( -d $entry ) {
+                _rmtree($entry);
+            }
+            elsif ( !unlink($entry) && -e $entry ) {
                 if ( $Foswiki::cfg{OS} ne 'WINDOWS' ) {
-                    die "DBIStore: Failed to delete $root: $!";
+                    die "DBIStore: Failed to delete file $entry: $!";
                 }
                 else {
-                    warn "WARNING: Failed to delete $root: $!";
+
+                    # Windows sometimes fails to delete files when
+                    # subprocesses haven't exited yet, because the
+                    # subprocess still has the file open. Live with it.
+                    warn "WARNING: Failed to delete file $entry: $!";
                 }
             }
         }
-    }
+        closedir($D);
 
-    # Get the timestamp on a file. 0 indicates the file was not found.
-    sub _getTimestamp {
-        my ($file) = @_;
-
-        my $date = 0;
-        if ( -e $file ) {
-
-            # If the stat fails, stamp it with some arbitrary static
-            # time in the past (00:40:05 on 5th Jan 1989)
-            $date = ( stat $file )[9] || 600000000;
-        }
-        return $date;
-    }
-
-    # Get a specific revision of a topic or attachment
-    sub _getRevision {
-        my ( $revs, $meta, $attachment, $version ) = @_;
-
-        my $nr = _numRevisions( $revs, $meta, $attachment );
-        if ( $nr && $version && $version <= $nr ) {
-            my $fn = _historyDir( $meta, $attachment ) . "/$version";
-            if ( -e $fn ) {
-                return ( _readFile($fn), $version == $nr );
-            }
-        }
-        my $latest = _latestFile( $meta, $attachment );
-        return ( undef, 0 ) unless -e $latest;
-
-        # no version given, give latest (may not be checked in yet)
-        return ( _readFile($latest), 1 );
-    }
-
-    # Split a string on \n making sure we have all newlines. If the string
-    # ends with \n there will be a '' at the end of the split.
-    sub _split {
-
-        #my $text = shift;
-
-        my @list = ();
-        return \@list unless defined $_[0];
-
-        my $nl = 1;
-        foreach my $i ( split( /(\n)/o, $_[0] ) ) {
-            if ( $i eq "\n" ) {
-                push( @list, '' ) if $nl;
-                $nl = 1;
+        if ( !rmdir($root) ) {
+            if ( $Foswiki::cfg{OS} ne 'WINDOWS' ) {
+                die "DBIStore: Failed to delete $root: $!";
             }
             else {
-                push( @list, $i );
-                $nl = 0;
+                warn "WARNING: Failed to delete $root: $!";
             }
         }
-        push( @list, '' ) if ($nl);
-
-        return \@list;
     }
+}
 
-    1;
+# Get the timestamp on a file. 0 indicates the file was not found.
+sub _getTimestamp {
+    my ($file) = @_;
+
+    my $date = 0;
+    if ( -e $file ) {
+
+        # If the stat fails, stamp it with some arbitrary static
+        # time in the past (00:40:05 on 5th Jan 1989)
+        $date = ( stat $file )[9] || 600000000;
+    }
+    return $date;
+}
+
+# Get a specific revision of a topic or attachment
+sub _getRevision {
+    my ( $revs, $meta, $attachment, $version ) = @_;
+
+    my $nr = _numRevisions( $revs, $meta, $attachment );
+    if ( $nr && $version && $version <= $nr ) {
+        my $fn = _historyDir( $meta, $attachment ) . "/$version";
+        if ( -e $fn ) {
+            return ( _readFile($fn), $version == $nr );
+        }
+    }
+    my $latest = _latestFile( $meta, $attachment );
+    return ( undef, 0 ) unless -e $latest;
+
+    # no version given, give latest (may not be checked in yet)
+    return ( _readFile($latest), 1 );
+}
+
+# Split a string on \n making sure we have all newlines. If the string
+# ends with \n there will be a '' at the end of the split.
+sub _split {
+
+    #my $text = shift;
+
+    my @list = ();
+    return \@list unless defined $_[0];
+
+    my $nl = 1;
+    foreach my $i ( split( /(\n)/o, $_[0] ) ) {
+        if ( $i eq "\n" ) {
+            push( @list, '' ) if $nl;
+            $nl = 1;
+        }
+        else {
+            push( @list, $i );
+            $nl = 0;
+        }
+    }
+    push( @list, '' ) if ($nl);
+
+    return \@list;
+}
+
+1;
 __END__
 Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 

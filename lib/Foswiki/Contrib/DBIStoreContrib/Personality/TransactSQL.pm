@@ -101,8 +101,9 @@ sub sql {
     my $sql  = shift;
 
     if ( $TRACE{sql} ) {
-        my @c = caller;
-        trace( $c[1], ':', $c[2] );
+
+        #my @c = caller;
+        #trace($c[1], ':', $c[2]);
         $this->traceSQL( $sql, @_ );
     }
 
