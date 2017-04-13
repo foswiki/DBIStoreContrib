@@ -56,6 +56,13 @@ $Foswiki::cfg{Extensions}{DBIStoreContrib}{AutoloadUnknownMETA} = 0;
 # in the table, so finding topics without that field becomes tricky.
 # It is always better to register META.
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{AutoAddUnknownFields} = 0;
+# **PERL EXPERT CHECK="undefok"**
+# Set values for extra $dbh->{attributes} to be set when the connection
+# has been made. You can use this (for example) to set odbc_ attributes when
+# using the ODBC driver. See the DBI and DBD documentation for your
+# specific driver for more information on the attributes that are
+# available.
+$Foswiki::cfg{Extensions}{DBIStoreContrib}{DBIAttributes} = {};
 # **PERL**
 # Specify how to construct the database. Some databases may require a
 # different schema, or plugins may require an extension to the schema.

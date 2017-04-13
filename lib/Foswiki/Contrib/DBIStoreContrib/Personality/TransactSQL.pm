@@ -1,17 +1,20 @@
 # See bottom of file for license and copyright information
 package Foswiki::Contrib::DBIStoreContrib::Personality::TransactSQL;
 
-# Personality module for MS SQL Server / Transact-SQL via ODBC
+# Personality module for MS SQL Server / Transact-SQL
 
 use strict;
 use warnings;
+
+use Encode ();
 
 use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
   BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL trace %TRACE);
 use Foswiki::Contrib::DBIStoreContrib::Personality ();
 our @ISA = ('Foswiki::Contrib::DBIStoreContrib::Personality');
 
-our $VERSION = 'Microsoft SQL Server';
+# Use the database version this has been tested with
+our $VERSION = '2014';
 
 sub new {
     my ( $class, $dbistore ) = @_;
@@ -54,7 +57,7 @@ sub startup {
     my $sql = "SELECT 1 WHERE OBJECT_ID('dbo.foswiki_CONVERT') IS NOT NULL";
     my $exists = $this->sql( 'do', $sql );
 
-    if ( $exists == 0 ) {
+    unless ($exists) {
 
         # Error-tolerant number conversion. Works like perl.
         $sql = <<'SQL';
@@ -92,22 +95,16 @@ SQL
     }
 }
 
-# SQL server is crap at international character support. We take a
-# rather cavalier approach and convert to HTML entities. We then
-# convert back on return. The encoding isn't symmetrical, but in
-# the application it should be OK.
+# Enforce UTF8
 sub to_db {
-    return Encode::encode( 'iso-8859-15', $_[1], Encode::FB_XMLCREF );
+
+    # Don't strictly have to do this, as perl stores the string as
+    # utf8 internally
+    return Encode::encode_utf8( $_[1] );
 }
 
 sub from_db {
-
-    # Do what works. High bit characters from the iso-8859-1 encoding
-    # are returned encoded using UTF8. So we have to decode those, then
-    # unwrap the FB_XMLCREF encoded chars.
-    my $s = Encode::decode( 'utf-8', $_[1] );
-    $s =~ s/&#x([A-Fa-f0-9]+);/chr(hex($1))/ge;
-    return $s;
+    return Encode::decode_utf8( $_[1] );
 }
 
 sub is_true {

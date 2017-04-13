@@ -12,8 +12,8 @@ use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
 use Foswiki::Contrib::DBIStoreContrib::Personality ();
 our @ISA = ('Foswiki::Contrib::DBIStoreContrib::Personality');
 
-# Use the database version this has been tested with
-our $VERSION = '9.1.13';
+# Use the oldest database version this has been tested with
+our $VERSION = '9.5';
 
 sub new {
     my ( $class, $dbistore ) = @_;

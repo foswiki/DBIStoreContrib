@@ -6,12 +6,13 @@ package Foswiki::Contrib::DBIStoreContrib::Personality::SQLite;
 use strict;
 use warnings;
 use Foswiki::Contrib::DBIStoreContrib qw(trace %TRACE);
+use Encode ();
 
 use Foswiki::Contrib::DBIStoreContrib::Personality ();
 our @ISA = ('Foswiki::Contrib::DBIStoreContrib::Personality');
 
 # Use the database version this has been tested with
-our $VERSION = '3.7.13';
+our $VERSION = '3.14';
 
 sub new {
     my ( $class, $dbistore ) = @_;

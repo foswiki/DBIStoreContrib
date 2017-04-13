@@ -22,18 +22,17 @@ use Foswiki::Func ();
 use DBI           ();
 use Encode        ();
 
-our $VERSION = '1.4';          # plugin version is also locked to this
+our $VERSION = '2.0';          # plugin version is also locked to this
 our $RELEASE = '9 Apr 2017';
 
 # Global options, used to control tracing etc throughout the module
 our %TRACE = (
-    hoist   => 0,
     action  => 0,
+    hoist   => 0,
     plugin  => 0,
     search  => 0,
     sql     => 0,
-    updates => 0,
-    dbi     => 0
+    updates => 0
 );
 
 require Exporter;
@@ -56,7 +55,7 @@ use constant {
 };
 
 # Additional types local to this module - must not overlap known
-# types
+# types declared in Foswiki::Infix::Node
 use constant {
     UNKNOWN => 0,
 
@@ -78,8 +77,12 @@ our $TABLE_PREFIX;
 our $personality;    # personality module for the selected DSN
 our $dbh;            # DBI handle
 
+# Get a reference to the personality module
 sub personality {
     unless ($personality) {
+
+        $TABLE_PREFIX =
+          $Foswiki::cfg{Extensions}{DBIStoreContrib}{TablePrefix} // '';
 
         # Custom code to put DB's into ANSI mode and clean up error reporting
         $personality = $Foswiki::cfg{Extensions}{DBIStoreContrib}{Personality};
@@ -215,9 +218,6 @@ sub getDBH {
         }
     }
 
-    $TABLE_PREFIX =
-      $Foswiki::cfg{Extensions}{DBIStoreContrib}{TablePrefix} // '';
-
     if ($Foswiki::inUnitTestMode) {
 
         # Change the DSN to a SQLite test db, which is held in the data
@@ -238,7 +238,15 @@ sub getDBH {
         { RaiseError => 1, AutoCommit => 1 }
     ) or die $DBI::errstr;
 
-    $dbh->trace( $TRACE{dbi} ) if ( $TRACE{dbi} );
+    # Automatically force UTF8 results when using ODBC
+    # ODBC with odbc_has_unicode=true is untested.
+    $dbh->{odbc_utf8_on} = 1 if defined $dbh->{odbc_has_unicode};
+
+    # Acknowledge any overrides
+    my $setup = $Foswiki::cfg{Extensions}{DBIStoreContrib}{DBIAttributes} // {};
+    while ( my ( $k, $v ) = each %$setup ) {
+        $dbh->{$k} = $v;
+    }
 
     personality->startup($dbh);
 
@@ -254,7 +262,7 @@ sub getDBH {
         if ( $TRACE{action} ) {
 
             # Check metatypes integrity
-            my $sql = 'SELECT name FROM ${TABLE_PREFIX}metatypes';
+            my $sql = "SELECT name FROM ${TABLE_PREFIX}metatypes";
             my $tables = personality->sql( 'selectcol_arrayref', $sql );
             foreach my $table (@$tables) {
                 $table = personality->from_db($table);

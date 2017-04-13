@@ -60,6 +60,21 @@ sub new {
     return $this;
 }
 
+=begin TML
+
+---++ ObjectMethod startup($dbh)
+Execute any SQL commands required to start the DB.
+Subclasses must call superclass.
+
+=cut
+
+sub startup {
+    my ( $this, $dbh ) = @_;
+    ASSERT($dbh) if DEBUG;
+    $this->{dbh} = $dbh;
+
+}
+
 # Protected - for use by subclasses only
 # Register reserved words
 sub reserve {
@@ -88,7 +103,8 @@ and some happily accept unicode. The default is to not encode.
 sub _truncate {
     my ( $data, $size ) = @_;
     return $data unless length($data) > $size;
-    return substr( $data, 0, $size - 3 ) . '...';
+    my $len = '...' . length($data);
+    return substr( $data, 0, $size - length($len) ) . $len;
 }
 
 sub sql {
@@ -99,9 +115,11 @@ sub sql {
         trace($sql);
         if ( scalar(@_) ) {
             my @clean = map {
-                defined $_
-                  ? "'" . _truncate( $this->to_db($_), 20 ) . "'"
-                  : 'undef'
+                   !defined $_ ? 'undef'
+                  : ref($_) eq 'HASH'  ? '{}'
+                  : ref($_) eq 'ARRAY' ? '[]'
+                  : "'"
+                  . _truncate( $this->to_db($_), 20 ) . "'"
             } @_;
             trace( ' [' . join( ', ', @clean ) . ']' );
         }
@@ -149,20 +167,6 @@ sub from_db {
 
 =begin TML
 
----++ ObjectMethod startup($dbh)
-Execute any SQL commands required to start the DB.
-Subclasses must call superclass.
-
-=cut
-
-sub startup {
-    my ( $this, $dbh ) = @_;
-    ASSERT($dbh) if DEBUG;
-    $this->{dbh} = $dbh;
-}
-
-=begin TML
-
 ---++ ObjectMethod table_exists(table_name [, table_name]*) -> boolean
 Determine if a table exists. All tables named in parameters
 must exist.
@@ -193,14 +197,13 @@ sub get_columns {
     ASSERT( $this->{dbh} ) if DEBUG;
 
     # MySQL, Postgresql, MS SQL Server
-    my $sql = <<SQL;
-SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS 
- WHERE TABLE_NAME = '$table'
-SQL
-
+    my $sql = 'SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS'
+      . " WHERE TABLE_NAME = '$table'";
     my $s = $this->sql( 'selectall_arrayref', $sql );
-    return { map { ( $this->from_db( $_->[0] ) => $this->from_db( $_->[1] ) ) }
+    my $res =
+      { map { ( $this->from_db( $_->[0] ) => $this->from_db( $_->[1] ) ) }
           @$s };
+    return $res;
 }
 
 =begin TML
