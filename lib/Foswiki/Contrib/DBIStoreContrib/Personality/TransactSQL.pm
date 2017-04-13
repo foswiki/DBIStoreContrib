@@ -98,13 +98,16 @@ SQL
 # Enforce UTF8
 sub to_db {
 
-    # Don't strictly have to do this, as perl stores the string as
-    # utf8 internally
-    return Encode::encode_utf8( $_[1] );
+    # See System.DBIStoreContrib for an exhausting discussion
+    return Encode::encode( 'cp1252', $_[1], Encode::FB_XMLCREF );
 }
 
 sub from_db {
-    return Encode::decode_utf8( $_[1] );
+
+    # Convert from a byte string
+    my $s = Encode::decode( 'cp1252', $_[1] );
+    $s =~ s/&#x([a-fA-F0-9]+);/chr(hex($1))/ge;
+    return $s;
 }
 
 sub is_true {

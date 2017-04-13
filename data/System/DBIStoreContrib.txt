@@ -298,6 +298,8 @@ UTF-8.
 ---+++ Microsoft SQL Server Notes
 SQL Server is supported via ODBC. See "ODBC Notes" for more.
 
+%X% *IF YOU WANT FULL SUPPORT FOR UNICODE CHARACTERS, DON'T USE SQL SERVER*
+
 If you are using the !FreeTDS driver, make sure your =odbc.ini= is
 selecting the highest possible protocol version that your server
 supports. See
@@ -306,20 +308,31 @@ http://www.freetds.org/userguide/choosingtdsprotocol.htm#FTN.AEN870
 ---++++ Encoding
 Unicode support in SQL Server consists of the UTF-16 encoding, which
 uses 2 bytes per character. If you are using mainly western characters
-with only a few high-bit characters, this is staggeringly inefficient,
+with only a few high-bit characters, this is inefficient,
 but is the only international character set support available. However
 while there is DBD support for unicode conversion, to/from UTF-16, we
 found it extremely difficult to configure and concluded it was not
 worth the effort.
 
-So we decided to simply store UTF-8 octets in the database. Foswiki
-users should be fine with this choice as database commands are
-automatically transcoded by DBIStoreContrib. Other users of the
-database may need to be told that data therein is UTF8-encoded.
+One alternative should be to simply store UTF-8 octets in the
+database, and pretend they are character strings. Foswiki users should
+be fine with this choice as database commands are automatically
+transcoded by DBIStoreContrib. Unfortunately SQL Server appears to
+detect, and barf on, UTF8 encoded text (for no obvious reason that I
+can find, and despite the fact these strings don't use anything not
+already in CP1252). The only alternative would be to store as
+VARBINARY, but that would cripple SQL queries that rely on a
+collation, and probably break regexes.
 
-Unfortunately SQL Server doesn't support UTF-8 encoding, so there are
-no collation sequences available for it.  However you must still make
-sure you set a collation sequence for the database. For example,
+So, we can't use UTF-16 and the SQL server barfs on UTF-8. What is left?
+The default encoding in SQL Server is Latin1, which corresponds to
+cp1252. Because most of the data stored in the database is destined
+for HTML, we encode using cp1252 with XML escapes, and revert the
+escapes on retrieval. That means the encoding isn't symmetrical, but
+should suffice for users of principally western text.
+
+Note that you must make sure you set a case-sensitive collation
+sequence for the database. For example,
 <verbatim>
 ALTER DATABASE Foswiki COLLATE Latin1_General_100_CS_AS_SC;
 </verbatim>
