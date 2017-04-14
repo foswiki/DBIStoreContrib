@@ -9,7 +9,7 @@ use Encode ();
 # Import type constants and tracing
 use Foswiki::Contrib::DBIStoreContrib qw(
   NAME NUMBER STRING UNKNOWN BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL
-  trace %TRACE);
+  trace %TRACE fmt_truncate);
 
 # We try to use the ANSI SQL standard as far as possible, for the most
 # part different SQL DB implementations support it fairly well. However
@@ -94,17 +94,9 @@ value from the call.
    * $sql is the (unicode) SQL
    * ... are any additional parameters
 
-Some drivers require you to encode unicode to a different charset,
-and some happily accept unicode. The default is to not encode.
+Parameters are bound using =DBI::bind_param=
 
 =cut
-
-sub _truncate {
-    my ( $data, $size ) = @_;
-    return $data unless length($data) > $size;
-    my $len = '...' . length($data);
-    return substr( $data, 0, $size - length($len) ) . $len;
-}
 
 sub traceSQL {
     my $this = shift;
@@ -122,7 +114,7 @@ sub traceSQL {
             $_ = '[]';
         }
         else {
-            $_ = "'" . _truncate( $this->to_db( $_[0] ), 20 ) . "'";
+            $_ = "'" . fmt_truncate( $_[0] ) . "'";
         }
         shift;
     }
@@ -141,10 +133,10 @@ sub sql {
         $this->traceSQL( $sql, @_ );
     }
 
-    my $sth = $this->{dbh}->prepare($sql);
+    my $sth = $this->{dbh}->prepare( $this->to_db($sql) );
     my $p   = 1;
     foreach my $arg (@_) {
-        $sth->bind_param( $p++, $arg );
+        $sth->bind_param( $p++, $this->to_db($arg) );
     }
     eval { $sth->execute(); };
     if ($@) {

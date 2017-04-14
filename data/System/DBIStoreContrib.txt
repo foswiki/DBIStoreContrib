@@ -266,7 +266,7 @@ $ perl ../tools/dbistore_manage.pl --reset --load Sandbox.TestTopic --query "web
 </verbatim>
 If you are using !PostgreSQL, !MySQL or !SQLite, the default schema
 should work fine for you. However if you are using SQL Server, you
-will have to tweak the schema as descibed in "SQL Server Notes",
+will have to tweak the schema as descibed in "Microsoft SQL Server Notes",
 below.
 
 ---+++ Testing
@@ -305,34 +305,39 @@ selecting the highest possible protocol version that your server
 supports. See
 http://www.freetds.org/userguide/choosingtdsprotocol.htm#FTN.AEN870
 
----++++ Encoding
+A couple of ={Extensions}{DBIStoreContrib}{DBIAttributes}= must be set
+in =configure=:
+<verbatim>
+{
+    LongTruncOk => 1,
+    LongReadLen => 1024
+}
+</verbatim>
+Note that =Long<nop>ReadLen= is used to determine when to force
+bound parameters to use =SQL_LONGVARBINARY= for transmission over TDS.
+If you find the server is complaining about failure to convert
+to the server character set, you may need to reduce (or increase!) this
+limit.
+
+---++++ Unicode
 Unicode support in SQL Server consists of the UTF-16 encoding, which
 uses 2 bytes per character. If you are using mainly western characters
-with only a few high-bit characters, this is inefficient,
-but is the only international character set support available. However
-while there is DBD support for unicode conversion, to/from UTF-16, we
-found it extremely difficult to configure and concluded it was not
-worth the effort.
+with only a few high-bit characters, this is inefficient, but is the
+only international character set support available.  While there is
+DBD support for unicode conversion to/from UTF-16, we found it
+difficult to configure and concluded it was not worth the
+effort. Anyone who wants to take the time to work out how to support
+UTF-16 is very welcome to try, and contribute their results back to
+the community.
 
-One alternative should be to simply store UTF-8 octets in the
-database, and pretend they are character strings. Foswiki users should
-be fine with this choice as database commands are automatically
-transcoded by DBIStoreContrib. Unfortunately SQL Server appears to
-detect, and barf on, UTF8 encoded text (for no obvious reason that I
-can find, and despite the fact these strings don't use anything not
-already in CP1252). The only alternative would be to store as
-VARBINARY, but that would cripple SQL queries that rely on a
-collation, and probably break regexes.
+The alternative we have chosen is to simply store UTF-8 octets in the
+database, and pretend they are character strings. However there is no
+UTF-8 collation on SQL server, so sorting (and possibly searching) of
+non-western character sets will not work. However it should suffice for
+users of principally western text.
 
-So, we can't use UTF-16 and the SQL server barfs on UTF-8. What is left?
-The default encoding in SQL Server is Latin1, which corresponds to
-cp1252. Because most of the data stored in the database is destined
-for HTML, we encode using cp1252 with XML escapes, and revert the
-escapes on retrieval. That means the encoding isn't symmetrical, but
-should suffice for users of principally western text.
-
-Note that you must make sure you set a case-sensitive collation
-sequence for the database. For example,
+Note that you must make sure you set a case-sensitive collation for
+the database. For example,
 <verbatim>
 ALTER DATABASE Foswiki COLLATE Latin1_General_100_CS_AS_SC;
 </verbatim>

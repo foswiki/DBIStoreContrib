@@ -56,8 +56,8 @@ sub table_exists {
           . " AND name IN ($phs)",
         @_
     );
-    my @rows = $sth->fetchall_array();
-    return scalar(@rows) == scalar(@_);
+    my $rows = $sth->fetchall_arrayref();
+    return scalar(@$rows) == scalar(@_);
 }
 
 sub get_columns {

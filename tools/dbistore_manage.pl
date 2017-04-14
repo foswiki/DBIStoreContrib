@@ -27,8 +27,8 @@ my @reloads;
 my $sql;
 my $query;
 my $reset;
-my $web;
-my $topic;
+my $web   = '*';
+my $topic = '*';
 
 my $result = Getopt::Long::GetOptions(
     'dbitrace=s' => \$dbitrace,
@@ -80,8 +80,10 @@ if ($reset) {
     $opsDone++;
 }
 
+# $full = 1 means unload before load, 0 means just load
 sub _refresh {
     my ( $full, $topics ) = @_;
+
     for my $wt (@$topics) {
         if ( $wt eq '*' ) {
             $topics = ['*'];
@@ -104,53 +106,6 @@ sub _refresh {
     $opsDone++;
 }
 
-sub _longest_line {
-    my $ml = 0;
-    for ( split( "\n", shift ) ) {
-        my $ll = length($_);
-        $ml = $ll if $ll > $ml;
-    }
-    return $ml;
-}
-
-sub _indent {
-    my ($s) = @_;
-    return ' ' . join( "\n ", split( "\n", $s ) );
-}
-
-# Like Data::Dumper, but more readable.
-sub _dump {
-    my ( $data, $indent ) = @_;
-
-    $indent //= 0;
-    my @e;
-    my @br;
-
-    if ( !ref($data) ) {
-        return "undef" unless defined $data;
-        return $data if $data =~ /^[0-9]+$/;
-        return "'$data'";
-    }
-    elsif ( ref($data) eq 'ARRAY' ) {
-        @br = qw/[ ]/;
-        for ( my $i = 0 ; $i <= $#{$data} ; $i++ ) {
-            push( @e, _dump( $data->[$i] ) );
-        }
-    }
-    elsif ( ref($data) eq 'HASH' ) {
-        @br = qw/{ }/;
-        while ( my ( $k, $v ) = each %$data ) {
-            push( @e, "$k =>" . _dump($v) );
-        }
-    }
-    else {
-        die "Can't _dump a " . ref($data);
-    }
-    my $s = $br[0] . join( ", ", @e ) . $br[1];
-    return $s if ( _longest_line($s) < 80 );
-    return "$br[0]\n" . join( ",\n", map { _indent($_) } @e ) . "\n$br[1]";
-}
-
 # Topic(s) to be reloaded
 if ( scalar @reloads ) {
     _refresh( 1, \@reloads );
@@ -163,11 +118,12 @@ if ( scalar @loads ) {
     $opsDone++;
 }
 
-if ($topic) {
-
-    # Topic to base queries on
-    ( $web, $topic ) = $fw->normalizeWebTopicName( undef, $topic );
+if ( $topic =~ /^(.*)\.(.*?)$/ ) {
+    ( $web, $topic ) = ( $1, $2 );
 }
+
+$web   =~ s/\*/%/g;
+$topic =~ s/\*/%/g;
 
 # Foswiki query
 if ( defined $query ) {
@@ -184,8 +140,8 @@ if ( defined $query ) {
         { type => 'query' } );
     $sql = Foswiki::Contrib::DBIStoreContrib::HoistSQL::hoist($query);
     $sql = "SELECT web,name FROM \"${TABLE_PREFIX}topic\" WHERE $sql";
-    $sql .= " AND name LIKE '$topic'" if $topic;
-    $sql .= " AND web LIKE '$web'"    if $web;
+    $sql .= " AND name LIKE '$topic'" if $topic && $topic ne '%';
+    $sql .= " AND web LIKE '$web'"    if $web   && $web   ne '%';
 
     $opsDone++;
 }
@@ -199,7 +155,7 @@ if ( defined $sql ) {
     }
     my $rv = Foswiki::Contrib::DBIStoreContrib::query($sql);
     if ( $sql =~ /^\s*select\W/i ) {
-        print _dump($rv) . "\n";
+        print Foswiki::Contrib::DBIStoreContrib::fmt($rv) . "\n";
     }
     else {
         print "$sql OK\n";
@@ -253,8 +209,10 @@ C<--reload *> can be used to reload all topics in the store.
 
 =item B<--topic> topic
 
-Set the topic for Foswiki queries (wildcards are *not* supported. If not
-given, queries are executed over the entire database).
+Include a topic for --query. Supports * wildcards.
+e.g. query a topic name over all webs using --query '*.TopicName'
+or all topics in a web starting with "Fred" using --query 'Webname.Fred*'.
+Only one --topic parameter can be given.
 
 =item B<--query> TML query
 

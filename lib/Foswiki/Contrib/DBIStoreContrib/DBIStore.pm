@@ -95,8 +95,8 @@ sub DBI_query {
 
     my @names;
     eval {
-        my $sth = Foswiki::Contrib::DBIStoreContrib::query($sql);
-        while ( my @row = $sth->fetchall_array() ) {
+        my $rv = Foswiki::Contrib::DBIStoreContrib::query($sql);
+        while ( my @row = @$rv ) {
             push( @names, "$row[0]/$row[1]" );
         }
     };

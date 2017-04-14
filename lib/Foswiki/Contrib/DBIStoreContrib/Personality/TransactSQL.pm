@@ -51,17 +51,18 @@ sub startup {
     my ( $this, $dbh ) = @_;
     $this->SUPER::startup($dbh);
 
-    $dbh->do('set QUOTED_IDENTIFIER ON');
+    $this->sql('set QUOTED_IDENTIFIER ON');
 
     # There's no way in T-SQL to conditionally create a function
     # without using dynamic SQL, so we have to do this the hard way.
-    my $sql    = "SELECT 1 WHERE OBJECT_ID('dbo.foswiki_CONVERT') IS NOT NULL";
-    my $exists = $dbh->do($sql);
+    my $sth =
+      $this->sql("SELECT 1 WHERE OBJECT_ID('dbo.foswiki_CONVERT') IS NOT NULL");
+    my $exists = scalar( @{ $sth->fetchall_arrayref() } );
 
-    if ( $exists == 0 ) {
+    unless ($exists) {
 
         # Error-tolerant number conversion. Works like perl.
-        $sql = <<'SQL';
+        my $sql = <<'SQL';
 CREATE FUNCTION foswiki_CONVERT( @value VARCHAR(MAX) ) RETURNS FLOAT AS
  BEGIN
   IF @value LIKE '%[^-+0-9eE]%' RETURN 0
@@ -92,7 +93,7 @@ CREATE FUNCTION foswiki_CONVERT( @value VARCHAR(MAX) ) RETURNS FLOAT AS
   RETURN CONVERT(FLOAT, @value)
  END
 SQL
-        $dbh->do($sql);
+        $dbh->sql($sql);
     }
 }
 
@@ -101,29 +102,26 @@ sub sql {
     my $sql  = shift;
 
     if ( $TRACE{sql} ) {
-
-        #my @c = caller;
-        #trace($c[1], ':', $c[2]);
-        $this->traceSQL( $sql, @_ );
+        my @c = caller;
+        $this->traceSQL( "$sql at $c[1]:$c[2]", @_ );
     }
 
     my $sth = $this->{dbh}->prepare($sql);
 
-    # Use SQL_VARBINARY simply to suppress charset checks in the
+    # Use SQL_LONGVARBINARY simply to suppress charset checks in the
     # DB, which otherwise barf on the UTF-8 we are storing. It doesn't
-    # seem to mind too much about short strings, but hates long ones. But
-    # binding using VARBINARY seems to work, even though the column
-    # on the DB is declared VARCHAR(max). Ho hum.
+    # seem to mind too much about short strings, but hates long ones.
+    # Ho hum.
     my $p = 1;
     foreach my $arg (@_) {
         if ( !defined $arg ) {
             $sth->bind_param( $p++, '' );
         }
-        elsif ( length($arg) <= 512 ) {
-            $sth->bind_param( $p++, $arg );
+        elsif ( length($arg) > $this->{dbh}->{LongReadLen} ) {
+            $sth->bind_param( $p++, $arg, SQL_LONGVARBINARY );
         }
         else {
-            $sth->bind_param( $p++, $arg, SQL_LONGVARBINARY );
+            $sth->bind_param( $p++, $arg );
         }
     }
     $sth->execute();
@@ -132,21 +130,11 @@ sub sql {
 
 # Enforce UTF8
 sub to_db {
-
     return Encode::encode_utf8( $_[1] );
-
-    # See System.DBIStoreContrib for an exhausting discussion
-    return Encode::encode( 'cp1252', $_[1], Encode::FB_XMLCREF );
 }
 
 sub from_db {
-
     return Encode::decode_utf8( $_[1] );
-
-    # Convert from a byte string
-    my $s = Encode::decode( 'cp1252', $_[1] );
-    $s =~ s/&#x([a-fA-F0-9]+);/chr(hex($1))/ge;
-    return $s;
 }
 
 sub is_true {

@@ -38,7 +38,7 @@ our %TRACE = (
 require Exporter;
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw(
-  trace personality insert remove rename
+  trace personality insert remove rename fmt fmt_truncate
   $TABLE_PREFIX %TRACE
   NAME NUMBER STRING UNKNOWN BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 
@@ -264,8 +264,8 @@ sub getDBH {
             # Check metatypes integrity
             my $sth =
               personality->sql("SELECT name FROM ${TABLE_PREFIX}metatypes");
-            my $tables = $sth->fetchall_arrayref();
-            foreach my $table (@$tables) {
+            my @tables = map { $_->[0] } @{ $sth->fetchall_arrayref() };
+            foreach my $table (@tables) {
                 $table = personality->from_db($table);
                 unless ( personality->table_exists($table) ) {
                     trace( $table, ' is in metatypes but does not exist' );
@@ -354,7 +354,7 @@ sub _createTables {
 }
 
 # Determine if the web or topic represented by $meta is present in the DB.
-# Returns the topic tids if present, or false otherwise.
+# Returns an array of the topic tids if present, or false otherwise.
 sub _getTIDs {
     my $mo = shift;
 
@@ -367,10 +367,80 @@ sub _getTIDs {
     }
 
     my $sth = personality->sql( $sql, @params );
+    my @rv = map { $_->[0] } @{ $sth->fetchall_arrayref() };
 
     # No need to decode, just numbers
-    my $res = $sth->fetchall_arrayref();
-    return $res;
+    return @rv;
+}
+
+=begin TML
+
+---++ fmt($data [, \%options]) -> $string
+Resursively format a data structure for printing.
+   * =$data= - a hash, array or scalar value to format
+   * =\%options= - optional options.
+      * =maxline= sets the maximum line length, default 80
+      * =truncate= sets the maximum length of any single value, default 20
+Returns the formatted structure as a string.
+Mainly used for debugging, but also used by dbistore_manage.pl for
+formatting --query and --sql results.
+
+=cut
+
+sub fmt_truncate {
+    my ( $data, $size ) = @_;
+    $size //= 20;
+    return $data unless length($data) > $size;
+    my $len = '...' . length($data);
+    return substr( $data, 0, $size - length($len) ) . $len;
+}
+
+sub fmt {
+    my ( $data, $options ) = @_;
+
+    sub _longest_line {
+        my $ml = 0;
+        for ( split( "\n", shift ) ) {
+            my $ll = length($_);
+            $ml = $ll if $ll > $ml;
+        }
+        return $ml;
+    }
+
+    sub _indent {
+        my ($s) = @_;
+        return ' ' . join( "\n ", split( "\n", $s ) );
+    }
+
+    $options //= {};
+    $options->{maxline} //= 80;
+
+    my @e;
+    my @br;
+
+    if ( !ref($data) ) {
+        return "undef" unless defined $data;
+        return $data if $data =~ /^[0-9]+$/;
+        return "'" . fmt_truncate( $data, $options->{truncate} ) . "'";
+    }
+    elsif ( ref($data) eq 'ARRAY' ) {
+        @br = qw/[ ]/;
+        for ( my $i = 0 ; $i <= $#{$data} ; $i++ ) {
+            push( @e, fmt( $data->[$i], $options ) );
+        }
+    }
+    elsif ( ref($data) eq 'HASH' ) {
+        @br = qw/{ }/;
+        while ( my ( $k, $v ) = each %$data ) {
+            push( @e, "$k =>" . fmt( $v, $options ) );
+        }
+    }
+    elsif ( ref($data) ) {
+        die "Can't fmt a " . ref($data);
+    }
+    my $s = $br[0] . join( ", ", @e ) . $br[1];
+    return $s if ( _longest_line($s) < $options->{maxline} );
+    return "$br[0]\n" . join( ",\n", map { _indent($_) } @e ) . "\n$br[1]";
 }
 
 =begin TML
@@ -394,8 +464,8 @@ sub load {
     getDBH();
 
     if ( $meta->topic() ) {
-        my $tids = _getTIDs($meta);
-        if ( $tids && scalar(@$tids) ) {
+        my @tids = _getTIDs($meta);
+        if ( scalar(@tids) ) {
             return unless ($reload);
             remove($meta);
         }
@@ -608,24 +678,22 @@ sub insert {
         {
 
             # Pull in the attachment data
-            my $tids = _getTIDs($mo);
-            ASSERT( $tids && scalar @$tids ) if DEBUG;
+            my @tids = _getTIDs($mo);
+            ASSERT( scalar @tids ) if DEBUG;
 
             my $data = 'TODO: load and serialise attachments';
             personality->sql(
 "UPDATE ${TABLE_PREFIX}FILEATTACHMENT SET serialised=? WHERE tid=? AND name=?",
-                $data, $tids->[0], $attachment );
+                $data, $tids[0], $attachment );
         }
     }
     elsif ( $mo->topic() ) {
 
         # SMELL: concurrency? what if two topics are inserted at the same time?
         my $sth = personality->sql("SELECT MAX(tid) FROM ${TABLE_PREFIX}topic");
-        my $mtid = $sth->fetchall_arrayref();
-        my $tid =
-          ( $mtid && $mtid->[0] && defined $mtid->[0]->[0] )
-          ? $mtid->[0]->[0]
-          : 1;
+        my $mtid = $sth->fetchall_arrayref()->[0];
+        $mtid = $mtid->[0] if $mtid;
+        my $tid = $mtid || 0;
         $tid++;
         trace( 'Insert ', $mo->web, '.', $mo->topic, '@', $tid )
           if $TRACE{action};
@@ -706,10 +774,10 @@ sub remove {
 
     getDBH();
 
-    my $tids = _getTIDs($mo);
-    return unless $tids && scalar @$tids;
+    my @tids = _getTIDs($mo);
+    return unless scalar @tids;
 
-    foreach my $tid (@$tids) {
+    foreach my $tid (@tids) {
         if ( defined $attachment ) {
 
             # SMELL: theoretically possible to remove an attachment on
@@ -730,12 +798,12 @@ sub remove {
                     site2uc( $mo->web ),
                     site2uc( $mo->topic )
                 );
-                my $tid = $sth->fetchall_array();
-                ASSERT($tid) if DEBUG;
+                my @tids = map { $_->[0] } @{ $sth->fetchall_arrayref() };
+                ASSERT( scalar(@tids) ) if DEBUG;
 
                 personality->sql(
 "DELETE FROM ${TABLE_PREFIX}FILEATTACHMENT WHERE tid=? AND name=?",
-                    $tid, $attachment
+                    $tids[0], $attachment
                 );
             }
         }
@@ -744,9 +812,9 @@ sub remove {
               if $TRACE{action};
             my $sth =
               personality->sql("SELECT name FROM ${TABLE_PREFIX}metatypes");
-            my $tables = $sth->fetchall_arrayref();
-            foreach my $tr ( ['topic'], @$tables ) {
-                my $t = $TABLE_PREFIX . $tr->[0];
+            my @tables = map { $_->[0] } @{ $sth->fetchall_arrayref() };
+            foreach my $tr ( 'topic', @tables ) {
+                my $t = $TABLE_PREFIX . $tr;
                 if ( personality->table_exists($t) ) {
                     $t = personality->identifier($t);
                     personality->sql( "DELETE FROM $t WHERE tid=?", $tid );
@@ -798,6 +866,7 @@ sub query {
     getDBH();
     my $sth = personality->sql($sql);
     my $rv  = $sth->fetchall_arrayref();
+
     $rv = _applyToStrings(
         $rv,
         sub {
@@ -828,17 +897,20 @@ sub reset {
 
     getDBH();
 
-    # The metatypes table is how we know which tables are ours. Add
-    # this to the schema.
+    # Build a list of tables se need to drop. Use a hash to avoid
+    # duplicates.
     my %tables = map { $TABLE_PREFIX . $_ => 1 } (
         grep { !/^_/ }
           keys %{ $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema} }
     );
+
+    # The metatypes table records tables we previously created, some
+    # of which might have been dropped from the schema, so we need to check.
     if ( personality->table_exists("${TABLE_PREFIX}metatypes") ) {
         my $sth = personality->sql("SELECT name FROM ${TABLE_PREFIX}metatypes");
-        my $mts = $sth->fetchall_arrayref();
-        foreach my $t (@$mts) {
-            $t = personality->from_db( $t->[0] );
+        my @mts = map { $_->[0] } @{ $sth->fetchall_arrayref() };
+        foreach my $t (@mts) {
+            $t = personality->from_db($t);
             $tables{$t} = 1;
         }
     }
