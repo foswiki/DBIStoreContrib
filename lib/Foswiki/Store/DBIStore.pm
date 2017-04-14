@@ -4,6 +4,8 @@
 
 ---+ package Foswiki::Store::DBIStore
 
+Experimental implementation of Foswiki::Store using an SQL database.
+
    * There are no webs, only topics (and attachments)
    * Attachments are stored in special table
    * Topic histories are stored in the same way as topics

@@ -89,8 +89,8 @@ sub reserve {
 ---++ ObjectMethod sql($sql, ...) -> $sth
 
 Prepare a unicode SQL string for passing to a DBI function, and
-execute it returning the statement handle. Returns the return
-value from the call.
+execute it returning the statement handle. Returns the statement
+handle.
    * $sql is the (unicode) SQL
    * ... are any additional parameters
 

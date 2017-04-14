@@ -482,11 +482,15 @@ sub load {
             load( $wmo, $reload );
         }
 
-        my $tit = $meta->eachTopic();
-        while ( $tit->hasNext() ) {
-            my $t = $tit->next();
-            my $tmo = Foswiki::Meta->load( $meta->session, $meta->web, $t );
-            load( $tmo, $reload );
+        if ( $meta->web() ) {
+
+            # No topics at root level
+            my $tit = $meta->eachTopic();
+            while ( $tit->hasNext() ) {
+                my $t = $tit->next();
+                my $tmo = Foswiki::Meta->load( $meta->session, $meta->web, $t );
+                load( $tmo, $reload );
+            }
         }
     }
 }
