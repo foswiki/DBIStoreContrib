@@ -179,10 +179,10 @@ sub query {
     require Foswiki::Contrib::DBIStoreContrib::HoistSQL;
     my $hoisted = Foswiki::Contrib::DBIStoreContrib::HoistSQL::hoist($query);
     my $sql =
-        "SELECT web,name FROM ${TABLE_PREFIX}topic WHERE "
+        "SELECT #<web>,#<name> FROM #T<XX2topic> WHERE "
       . $hoisted
       . _expand_arguments( \%hoist_control )
-      . ' ORDER BY web,name';
+      . ' ORDER BY #<web>,#<name>';
 
     $query = undef;    # not needed any more
     trace( "Generated SQL:"

@@ -9,7 +9,8 @@ use Encode ();
 # Import type constants and tracing
 use Foswiki::Contrib::DBIStoreContrib qw(
   NAME NUMBER STRING UNKNOWN BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL
-  trace %TRACE fmt_truncate);
+  $TABLE_PREFIX expandIDs
+  trace %TRACE traceSQL);
 
 # We try to use the ANSI SQL standard as far as possible, for the most
 # part different SQL DB implementations support it fairly well. However
@@ -98,50 +99,29 @@ Parameters are bound using =DBI::bind_param=
 
 =cut
 
-sub traceSQL {
-    my $this = shift;
-    my @sql = split( /(?)/, shift );
-
-    foreach (@sql) {
-        next if ( $_ ne '?' );
-        if ( !defined $_[0] ) {
-            $_ = 'undef';
-        }
-        elsif ( ref( $_[0] ) eq 'HASH' ) {
-            $_ = '{}';
-        }
-        elsif ( ref( $_[0] ) eq 'ARRAY' ) {
-            $_ = '[]';
-        }
-        else {
-            $_ = "'" . fmt_truncate( $_[0] ) . "'";
-        }
-        shift;
-    }
-    trace(@sql);
-
-}
-
 sub sql {
     my $this = shift;
-    my $sql  = shift;
+    my $sql  = expandIDs(shift);
 
     if ( $TRACE{sql} ) {
 
         #my @c = caller;
         #trace($c[1], ':', $c[2]);
-        $this->traceSQL( $sql, @_ );
+        traceSQL( $sql, @_ );
     }
 
-    my $sth = $this->{dbh}->prepare( $this->to_db($sql) );
-    my $p   = 1;
-    foreach my $arg (@_) {
-        $sth->bind_param( $p++, $this->to_db($arg) );
-    }
-    eval { $sth->execute(); };
+    my $sth;
+    eval {
+        $sth = $this->{dbh}->prepare( $this->to_db($sql) );
+        my $p = 1;
+        foreach my $arg (@_) {
+            $sth->bind_param( $p++, $this->to_db($arg) );
+        }
+        $sth->execute();
+    };
     if ($@) {
-        die $@ if ( $sql =~ /^(INSERT|CREATE)/ );
-        trace( "WARNING: ", $@ );
+        require Carp;
+        Carp::confess($@);
     }
     return $sth;
 }
@@ -182,7 +162,7 @@ sub from_db {
 
 ---++ ObjectMethod table_exists(table_name [, table_name]*) -> boolean
 Determine if a table exists. All tables named in parameters
-must exist.
+must exist. Note that table_name is the UNPREFIXED table name
 
 =cut
 
@@ -192,11 +172,14 @@ sub table_exists {
 
     # MySQL, Postgresql, MS SQL Server
     my $phs = join( ',', map { '?' } @_ );
-    my $sth = $this->sql(
+    my @p = (
         'SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE '
           . "TABLE_NAME IN ($phs)",
-        @_
+        map { $TABLE_PREFIX . $_ } @_
     );
+
+    #traceSQL(@p) if $TRACE{sql};
+    my $sth  = $this->sql(@p);
     my $rows = $sth->fetchall_arrayref();
     return scalar(@$rows) == scalar(@_);
 }
@@ -205,6 +188,7 @@ sub table_exists {
 
 ---++ ObjectMethod get_columns(table_name) -> %cols
 Get a map of column names to type for the given table
+Note: table_name is unprefixed!
 
 =cut
 
@@ -215,8 +199,8 @@ sub get_columns {
     # MySQL, Postgresql, MS SQL Server
     my $sth = $this->sql(
         'SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS'
-          . " WHERE TABLE_NAME=?",
-        $table
+          . ' WHERE TABLE_NAME=?',
+        $TABLE_PREFIX . $table
     );
     my $s = $sth->fetchall_arrayref();
     my $res =
@@ -323,29 +307,6 @@ Calculate the character length of a string
 sub length {
     my ( $this, $s ) = @_;
     return "LENGTH($s)";
-}
-
-=begin TML
-
----++ ObjectMethod identifier($id) -> $safeid
-
-Make sure the ID is safe to use in this dialect of SQL.
-Unsafe IDs should be quoted using the dialect's identifier
-quoting rule.
-
-The default is to double-quote all identifiers.
-
-Note that this is only used on idenitifers derived from Foswiki data
-e.g. table and column names.
-
-=cut
-
-sub identifier {
-    my ( $this, $id ) = @_;
-
-    # blunt instrument - protect against all non-word chars
-    $id =~ s/([^\w])/'X'.ord($1)/ges;
-    return "\"$id\"";
 }
 
 =begin TML

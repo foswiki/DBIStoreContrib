@@ -5,7 +5,7 @@ package Foswiki::Contrib::DBIStoreContrib::Personality::SQLite;
 
 use strict;
 use warnings;
-use Foswiki::Contrib::DBIStoreContrib qw(trace %TRACE);
+use Foswiki::Contrib::DBIStoreContrib qw(trace %TRACE $TABLE_PREFIX);
 use Encode ();
 
 use Foswiki::Contrib::DBIStoreContrib::Personality ();
@@ -42,11 +42,9 @@ sub startup {
           . "')" );
 }
 
-# Driver handles unicode, no need to encode on call, can use the default
-# Personality::sql. However it requires results to be decoded.
+# Driver handles unicode, no need to encode on call. However it
+# requires results to be decoded.
 sub from_db { return Encode::decode_utf8( $_[1] ); }
-
-# Need to decode utf8 coming back from the DB, su use the default personality
 
 sub table_exists {
     my $this = shift;
@@ -54,7 +52,7 @@ sub table_exists {
     my $sth  = $this->sql(
         "SELECT name FROM sqlite_master WHERE type='table'"
           . " AND name IN ($phs)",
-        @_
+        map { $TABLE_PREFIX . $_ } @_
     );
     my $rows = $sth->fetchall_arrayref();
     return scalar(@$rows) == scalar(@_);
@@ -62,7 +60,8 @@ sub table_exists {
 
 sub get_columns {
     my ( $this, $table, $column ) = @_;
-    my $sth  = $this->sql("PRAGMA table_info($table)");
+    my $tn   = $TABLE_PREFIX . $table;
+    my $sth  = $this->sql("PRAGMA table_info($tn)");
     my $rows = $sth->fetchall_arrayref();
     return { map { $this->from_db( $_->[1] ) => $this->from_db( $_->[2] ) }
           @$rows };

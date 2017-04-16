@@ -7,8 +7,9 @@ META:TOPICINFO{author="ProjectContributor" comment="save topic" date="1401385201
 
 %TOC%
 
-This extension supports the storing of wiki data in an SQL database
-and fast querying of that DB.
+This extension supports fast queries and searches over the
+content of topics and attachments by cacheing wiki topics in
+an SQL database.
 
 Works as a mirror of an existing store (e.g. PlainFile, RCS)
    1. With all searching operations performed using SQL _or_
@@ -56,9 +57,17 @@ It has "personality modules" that support the following SQL implementations:
 Note that there are many different versions of these databases and
 full compatibility with any given version cannot be guaranteed.
 
+The release package includes the DBIStorePlugin, which can be optionally
+enabled. This plugin hooks into the Foswiki save operations to
+incrementally update the database.
+
+Alternatively, you can use the included =dbistore_manage.pl= program
+to create cron (or iwatch) jobs to update the database offline.
+
 ---++ Database Schema
 The database schema must reflect 1:1 the structure of data in Foswiki
-topics.
+topics. The default schema will work for most databases, though you
+may need to tweak it for Microsoft SQL Server.
 
 The schema is defined using a Perl hash structure. Top level keys in
 this hash represent:
@@ -81,6 +90,7 @@ Contains all wiki topics.
 
    * =web= - the web name
    * =name= - the topic name
+   * =timestamp= - the date/time the row was inserted
    * =text= - the full text of the topic, without embedded meta-data
    * =raw= - the full text of the topic including embedded meta-data
 
@@ -97,6 +107,19 @@ corresponding =%<nop>META:=.
 If the default names of tables would conflict with other uses in the
 database, you can define an optional prefix to be used on table names
 in =configure=.
+
+If the =FILEATTACHMENT= table in the schema has a field called 'text',
+and the StringifierContrib is installed, then the attachment will
+automatically be serialised (if necessary) and stored in text form in
+the database. This pseudo-field can be searched using standard SEARCH
+queries, for example:
+
+<verbatim>
+%SEARCH{"attachments.text~'*telephoto*' type="query"}%
+</verbatim>
+
+Note that this will only tell you the topic, and not the specific
+attachment that contained the text.
 
 ---+++ Automatically extending the schema
 The schema should normally specify a table for every =%<nop>META:=

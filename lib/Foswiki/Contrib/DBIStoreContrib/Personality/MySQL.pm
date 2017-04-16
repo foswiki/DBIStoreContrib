@@ -58,11 +58,13 @@ sub startup {
 
 # MySQL driver wants everything handed to it on a plate
 sub to_db {
+    return undef unless defined $_[1];
     return Encode::encode_utf8( $_[1] );
 }
 
 # MySQL driver wants you to deal with its crap
 sub from_db {
+    return undef unless defined $_[1];
     return Encode::decode_utf8( $_[1] );
 }
 

@@ -21,6 +21,7 @@ use Foswiki       ();
 use Foswiki::Func ();
 use DBI           ();
 use Encode        ();
+use File::Temp;
 
 our $VERSION = '2.0';          # plugin version is also locked to this
 our $RELEASE = '9 Apr 2017';
@@ -38,8 +39,8 @@ our %TRACE = (
 require Exporter;
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw(
-  trace personality insert remove rename fmt fmt_truncate
-  $TABLE_PREFIX %TRACE
+  trace personality insert remove rename expandIDs
+  $TABLE_PREFIX %TRACE traceSQL
   NAME NUMBER STRING UNKNOWN BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 
 our $SHORTDESCRIPTION = 'Use DBI to implement a store using an SQL database.';
@@ -76,6 +77,22 @@ our $TABLE_PREFIX;
 
 our $personality;    # personality module for the selected DSN
 our $dbh;            # DBI handle
+our $can_load = 1;   # Boolean, is the basic table integrity OK?
+
+sub _ID {
+    my $id = shift;
+
+    # blunt instrument - protect against all non-word chars
+    $id =~ s/([^\w])/'X'.ord($1)/ges;
+    return "\"$id\"";
+}
+
+sub expandIDs {
+    my $s = shift;
+    $s =~ s/#T<(.*?)>/'"'.$TABLE_PREFIX.$1.'"'/ge;
+    $s =~ s/#<(.*?)>/_ID($1)/ge;
+    return $s;
+}
 
 # Get a reference to the personality module
 sub personality {
@@ -97,10 +114,8 @@ sub personality {
         }
 
         eval "require $personality";
-        if ($@) {
-            trace($@);
-            die "Failed to load personality module $personality";
-        }
+        die "Failed to load personality module $personality: $@" if ($@);
+
         trace( 'Using ', $personality ) if $TRACE{action};
         $personality = $personality->new();
     }
@@ -138,6 +153,22 @@ sub _applyToStrings {
     }
 }
 
+# truncate and format a string
+sub _fmt_truncate {
+    my ( $data, $size ) = @_;
+    $size //= 20;
+    return $data unless length($data) > $size;
+    my $len = '...' . length($data);
+    return substr( $data, 0, $size - length($len) ) . $len;
+}
+
+# protected within this module
+sub traceSQL {
+    my $sql = shift;
+    trace($sql);
+    trace( _fmt( \@_ ) ) if scalar(@_);
+}
+
 # Convert from the site charset to unicode
 sub site2uc {
     if ( !$Foswiki::UNICODE && $Foswiki::cfg{Site}{CharSet} ne 'utf-8' ) {
@@ -155,6 +186,17 @@ sub uc2site {
         $_[0] = Encode::encode( $Foswiki::cfg{Site}{CharSet}, $_[0] );
     }
     return $_[0];
+}
+
+sub error {
+    trace(@_);
+    unless ( $TRACE{cli} ) {
+
+        # Repreint to STDERR
+        $TRACE{cli} = 1;
+        trace(@_);
+        $TRACE{cli} = 0;
+    }
 }
 
 # Used throughout the module. Parameters are iterated through to generate
@@ -252,54 +294,71 @@ sub getDBH {
 
     # Check if the DB is initialised with a quick sniff of the tables
     # to see if all the ones we expect are there
-    if (
-        personality->table_exists(
-            $TABLE_PREFIX . 'metatypes',
-            $TABLE_PREFIX . 'topic'
-        )
-      )
-    {
+    if ( personality->table_exists( 'metatypes', 'topic' ) ) {
         if ( $TRACE{action} ) {
 
             # Check metatypes integrity
-            my $sth =
-              personality->sql("SELECT name FROM ${TABLE_PREFIX}metatypes");
-            my @tables = map { $_->[0] } @{ $sth->fetchall_arrayref() };
-            foreach my $table (@tables) {
-                $table = personality->from_db($table);
+            my $sth    = personality->sql('SELECT #<name> FROM #T<metatypes>');
+            my $tables = $sth->fetchall_arrayref();
+            foreach my $trow (@$tables) {
+                my $table = personality->from_db( $trow->[0] );
                 unless ( personality->table_exists($table) ) {
                     trace( $table, ' is in metatypes but does not exist' );
                 }
             }
         }
     }
-    elsif ( $TRACE{action} ) {
-        trace('Base metatypes and topic tables don\'t exist');
+    else {
+        $can_load = 0;
     }
 
     return $dbh;
 }
 
+# unwrap a stack of undos
+sub _undo {
+    my $undos = shift;
+    foreach my $sql (@$undos) {
+        eval { personality->sql(@$sql); };
+        if ($@) {
+            error("Undo failed");
+            traceSQL(@$sql);
+        }
+    }
+}
+
 # Create the table for the given META - PRIVATE
 sub _createTable {
-    my ( $tname, $tschema ) = @_;
+    my ( $tname, $tschema, $undos ) = @_;
 
     # Create table
     my @cols;
     my %constraint;    # indexed on constraint name
-    my $tn = personality->identifier( $TABLE_PREFIX . $tname );
 
+    # Make a list of the SQL for the columns
     while ( my ( $cname, $cschema ) = each %$tschema ) {
 
         # resolve pseudo-type
         $cschema = $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$cschema}
           unless ( ref($cschema) );
         _basetype($cschema);
-        my $csql = personality->identifier($cname) . ' ' . $cschema->{type};
+        my $csql = "#<$cname>" . ' ' . $cschema->{type};
         if ( $cschema->{primary} ) {
             $csql .= ' PRIMARY KEY';
         }
-        $csql .= " DEFAULT " . $dbh->quote( $cschema->{default} // '' );
+
+        my $default = $cschema->{default};
+        if ( $cschema->{type} =~ /(CHAR|TEXT|BINARY)/i ) {
+            $default = $dbh->quote( $cschema->{default} // '' );
+        }
+        elsif ( $cschema->{type} =~ /^BOOL/i ) {
+            $default //= 'FALSE';
+        }
+        else {
+            $default //= 0;
+        }
+
+        $csql .= " DEFAULT $default";
         if ( defined $cschema->{unique} ) {
             ASSERT( $cschema->{unique} =~ /^[A-Za-z]+$/i ) if DEBUG;
             $constraint{ $cschema->{unique} } ||= [];
@@ -307,21 +366,32 @@ sub _createTable {
         }
         push( @cols, $csql );
     }
+
+    # Add constraints (obviously not real columns)
     my $ok = 0;
     while ( my ( $cons, $set ) = each %constraint ) {
         push( @cols,
-                "CONSTRAINT $cons UNIQUE ("
-              . join( ',', map { personality->identifier($_) } @$set )
+                "CONSTRAINT #<$cons> UNIQUE ("
+              . join( ',', map { "#<$_>" } @$set )
               . ')' );
         $ok = 1;
     }
-    personality->sql( "CREATE TABLE $tn ( " . join( ',', @cols ) . ")" );
+    push( @$undos, ["DROP TABLE #T<$tname>"] );
+
+    personality->sql( "CREATE TABLE #T<$tname> ( " . join( ',', @cols ) . ")" );
 
     # Add non-primary tables to the table of tables
     unless ( $tname eq 'topic' || $tname eq 'metatypes' ) {
-        personality->sql(
-            "INSERT INTO ${TABLE_PREFIX}metatypes (name) VALUES ( ? )",
-            $TABLE_PREFIX . $tname );
+        unshift(
+            @$undos,
+            [
+                'DELETE FROM #T<metatypes> WHERE #<name>=?',
+                $TABLE_PREFIX . $tname
+            ]
+        );
+
+        personality->sql( 'INSERT INTO #T<metatypes> (#<name>) VALUES ( ? )',
+            $tname );
     }
 
     # Create indexes
@@ -331,9 +401,8 @@ sub _createTable {
         $cschema = $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{$cschema}
           unless ( ref($cschema) );
         next unless ( $cschema->{index} );
-        my $id = personality->identifier("IX_${tname}_${cname}");
-        $cname = personality->identifier($cname);
-        personality->sql("CREATE INDEX $id ON $tn ( $cname )");
+        my $id = $TABLE_PREFIX . $tname . '_' . ${cname} . '_INDEX';
+        personality->sql("CREATE INDEX #<$id> ON #T<$tname> ( #<$cname> )");
     }
 }
 
@@ -341,61 +410,73 @@ sub _createTable {
 # default META: tables) - PRIVATE
 sub _createTables {
 
-    _createTable( 'metatypes',
-        $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}->{metatypes} );
-    while ( my ( $name, $schema ) =
-        each %{ $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema} } )
-    {
-        next if $name eq 'metatypes' || $name =~ /^_/;
+    my @undos;
 
-        trace( 'Creating table for ', $name ) if $TRACE{action};
-        _createTable( $name, $schema );
+    eval {
+        _createTable( 'metatypes',
+            $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}->{metatypes},
+            \@undos );
+        while ( my ( $name, $schema ) =
+            each %{ $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema} } )
+        {
+            next if $name eq 'metatypes' || $name =~ /^_/;
+
+            trace( 'Creating table for ', $name ) if $TRACE{action};
+            _createTable( $name, $schema, \@undos );
+        }
+        $can_load = 1;
+    };
+    if ($@) {
+        error("Table creation failed: $@");
+        _undo( \@undos );
     }
 }
 
 # Determine if the web or topic represented by $meta is present in the DB.
-# Returns an array of the topic tids if present, or false otherwise.
+# Returns an array of topid ids
 sub _getTIDs {
     my $mo = shift;
 
-    my $sql = "SELECT tid FROM ${TABLE_PREFIX}topic WHERE web =?";
+    my $sql = "SELECT #<tid> FROM #T<topic> WHERE #<web>=?";
 
     my @params = ( site2uc( $mo->web() ) );
     if ( $mo->topic ) {
-        $sql .= " AND name=?";
+        $sql .= " AND #<name>=?";
         push( @params, site2uc( $mo->topic ) );
     }
 
     my $sth = personality->sql( $sql, @params );
-    my @rv = map { $_->[0] } @{ $sth->fetchall_arrayref() };
-
-    # No need to decode, just numbers
-    return @rv;
+    my $rv = $sth->fetchall_arrayref();
+    return wantarray ? map { $_->[0] } @$rv : $rv->[0]->[0];
 }
 
-=begin TML
+# Get the DB timestamp for a topic
+sub _getTimestamp {
+    my $mo = shift;
 
----++ fmt($data [, \%options]) -> $string
-Resursively format a data structure for printing.
-   * =$data= - a hash, array or scalar value to format
-   * =\%options= - optional options.
-      * =maxline= sets the maximum line length, default 80
-      * =truncate= sets the maximum length of any single value, default 20
-Returns the formatted structure as a string.
-Mainly used for debugging, but also used by dbistore_manage.pl for
-formatting --query and --sql results.
+    my $sql = "SELECT #<timestamp> FROM #T<topic> WHERE #<web>=?";
 
-=cut
+    my @params = ( site2uc( $mo->web() ) );
+    if ( $mo->topic ) {
+        $sql .= " AND #<name>=?";
+        push( @params, site2uc( $mo->topic ) );
+    }
 
-sub fmt_truncate {
-    my ( $data, $size ) = @_;
-    $size //= 20;
-    return $data unless length($data) > $size;
-    my $len = '...' . length($data);
-    return substr( $data, 0, $size - length($len) ) . $len;
+    my $sth = personality->sql( $sql, @params );
+    my $rv = $sth->fetchall_arrayref();
+    return undef unless $rv && $rv->[0] && $rv->[0]->[0];
+    return $rv->[0]->[0];
 }
 
-sub fmt {
+# Recursively format a data structure for printing.
+#    * =$data= - a hash, array or scalar value to format
+#    * =\%options= - optional options.
+#       * =maxline= sets the maximum line length, default 80
+#       * =truncate= sets the maximum length of any single value, default 20
+# Returns the formatted structure as a string.
+# Mainly used for debugging, but also used by dbistore_manage.pl for
+# formatting --query and --sql results.
+sub _fmt {
     my ( $data, $options ) = @_;
 
     sub _longest_line {
@@ -421,22 +502,22 @@ sub fmt {
     if ( !ref($data) ) {
         return "undef" unless defined $data;
         return $data if $data =~ /^[0-9]+$/;
-        return "'" . fmt_truncate( $data, $options->{truncate} ) . "'";
+        return "'" . _fmt_truncate( $data, $options->{truncate} ) . "'";
     }
     elsif ( ref($data) eq 'ARRAY' ) {
         @br = qw/[ ]/;
         for ( my $i = 0 ; $i <= $#{$data} ; $i++ ) {
-            push( @e, fmt( $data->[$i], $options ) );
+            push( @e, _fmt( $data->[$i], $options ) );
         }
     }
     elsif ( ref($data) eq 'HASH' ) {
         @br = qw/{ }/;
         while ( my ( $k, $v ) = each %$data ) {
-            push( @e, "$k =>" . fmt( $v, $options ) );
+            push( @e, "$k =>" . _fmt( $v, $options ) );
         }
     }
     elsif ( ref($data) ) {
-        die "Can't fmt a " . ref($data);
+        die "Can't format a " . ref($data);
     }
     my $s = $br[0] . join( ", ", @e ) . $br[1];
     return $s if ( _longest_line($s) < $options->{maxline} );
@@ -445,53 +526,65 @@ sub fmt {
 
 =begin TML
 
----++ load( $meta, $reload )
+---++ load( $webo, $wre, $tre, $reload )
 
-Load (or reload) the database from the backing store. If $meta is undef, it
-will reload the entire DB from the root. If it is a web, it will reload all
-topics in that web. If it is a topic, it will reload that topic.
+Load (or reload) some part of the database from the backing store.
+   * =$webo= - Foswiki::Meta object for a web to be recursively processed
+   * =$wre= - regex that matches names of subwebs to process
+    of undef for all subwebs
+   * =$tre= - regex that matches names of topics to process
+    of undef for all topics
 
-If $reload is true, it will unload the topic from the DB (if it's there) and
-load it from backing. Missing topics will be added.
-
-If reload is false, it will skip topics already in the DB.
+If $reload is true, it will forcibly reload topics even if they are up
+to date. Missing topics are always added.
 
 =cut
 
 sub load {
-    my ( $meta, $reload ) = @_;
+    my ( $wo, $wre, $tre, $reload ) = @_;
 
     getDBH();
 
-    if ( $meta->topic() ) {
-        my @tids = _getTIDs($meta);
-        if ( scalar(@tids) ) {
-            return unless ($reload);
-            remove($meta);
-        }
-        insert($meta);
+    unless ($can_load) {
+        die "Base metatypes and topic tables missing; do you need to --reset?";
     }
-    else {
-        my $wit = $meta->eachWeb();
-        while ( $wit->hasNext() ) {
 
-            # Load subweb
-            my $w = ( $meta->web ? $meta->web . '/' : '' ) . $wit->next();
-            print STDERR "Web $w\n";
-            my $wmo = Foswiki::Meta->load( $meta->session, $w );
-            load( $wmo, $reload );
-        }
+    trace( "Web ", $wo->getPath ) if $TRACE{action};
+    my $wit = $wo->eachWeb();
+    while ( $wit->hasNext() ) {
 
-        if ( $meta->web() ) {
+        my $w = ( $wo->web ? $wo->web . '/' : '' ) . $wit->next();
+        next unless !defined($wre) || $w =~ /^$wre$/;
 
-            # No topics at root level
-            my $tit = $meta->eachTopic();
-            while ( $tit->hasNext() ) {
-                my $t = $tit->next();
-                my $tmo = Foswiki::Meta->load( $meta->session, $meta->web, $t );
-                load( $tmo, $reload );
+        # Load subweb
+        my $swo = Foswiki::Meta->load( $wo->session, $w );
+        load( $swo, $reload );
+    }
+
+    # No topics at root level
+    return unless ( $wo->web() );
+
+    my $tit = $wo->eachTopic();
+    while ( $tit->hasNext() ) {
+        my $t = $tit->next();
+        next unless !defined($tre) || $t =~ /^$tre$/;
+
+        # Load topic
+        my $tmo = Foswiki::Meta->new( $wo->session, $wo->web, $t );
+        my $stamp = _getTimestamp($tmo);
+        if ( defined $stamp ) {
+            unless ($reload) {
+                my $info = $tmo->getRevisionInfo();
+                if ( $stamp >= $info->{date} ) {
+
+                    #trace($tmo->getPath . " is up to date") if $TRACE{action};
+                    next;
+                }
             }
+            remove($tmo);
         }
+        $tmo->load();
+        insert($tmo);
     }
 }
 
@@ -559,6 +652,8 @@ sub disconnect {
 }
 
 # Get the named table from the schema, or (if appropriate) create it
+# $type is the unprefixed table name
+# $mo is the (optional) meta-object to be scanned for columns
 sub _findOrCreateTable {
     my ( $type, $mo ) = @_;
 
@@ -613,6 +708,9 @@ sub _findOrCreateTable {
 }
 
 # Determine if the column can be used, adding it if that's allowed
+# $col is the column name
+# $tableSchema is the schema for the table
+# $type is the unprefixed table name
 sub _findOrCreateColumn {
     my ( $col, $tableSchema, $type ) = @_;
 
@@ -640,9 +738,7 @@ sub _findOrCreateColumn {
     else {
         # Must add the column to the DB
         my @params;
-        my $tn  = personality->identifier( $TABLE_PREFIX . $type );
-        my $cn  = personality->identifier($col);
-        my $sql = "ALTER TABLE $tn ADD $cn $tsch->{type} DEFAULT "
+        my $sql = "ALTER TABLE #T<$type> ADD #<$col> $tsch->{type} DEFAULT "
           . $dbh->quote( $tsch->{default} // '' );
 
         personality->sql( $sql, @params );
@@ -651,6 +747,136 @@ sub _findOrCreateColumn {
     trace( 'Added ', $type, '.', $col . ' to the schema' ) if $TRACE{action};
 
     return $col;
+}
+
+sub _insertAttachment {
+    my ( $mo, $attachment ) = @_;
+
+    # Note that we DO NOT explicitly add the META:FILEATTACHMENT entry
+    # table here. That is done at a much higher level in Foswiki::Meta
+    # when the referring topic has it's meta-data rewritten.
+    #
+    # Here we simply load a serialised version of the attachment data
+    # if the 'text' column is present in the schema and the StringifierContrib
+    # is available.
+    if (
+        $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{FILEATTACHMENT}{text}
+      )
+    {
+
+        eval { require Foswiki::Contrib::Stringifier; };
+        if ($@) {
+            die "FILEATTACHMENT has 'text', but cannot load Stringifier: $@";
+        }
+
+        trace( 'Serialising ', $mo->getPath, ':', $attachment )
+          if $TRACE{action};
+
+        # Pull in the attachment data
+        my $tid = _getTIDs($mo);
+        eval {
+            my $suffix = ( $attachment =~ /(\..*?)$/ ? $1 : '.txt' );
+            my $fh = $mo->openAttachment( $attachment, '<' );
+            my ( $tfh, $tfn ) = File::Temp::tempfile(
+                DIR    => $Foswiki::cfg{TempfileDir},
+                UNLINK => 1,
+                SUFFIX => $suffix
+            );
+            local $/;
+
+            # Modern system; use a 512K buffer
+            my $buffer;
+            while ( read( $fh, $buffer, 524288 ) ) {
+                print $tfh $buffer;
+            }
+            close($fh);
+            close($tfh);
+            my $data = Foswiki::Contrib::Stringifier->stringFor($tfn);
+            personality->sql(
+                'UPDATE #T<FILEATTACHMENT> SET text=? WHERE tid=? AND name=?',
+                $data, $tid, $attachment );
+        };
+        if ($@) {
+            error( 'Serialisation of ',
+                $mo->getPath, ':', $attachment, ' failed:', $@ );
+        }
+    }
+}
+
+sub _insertTopic {
+    my ( $mo, $undos ) = @_;
+
+    # SMELL: concurrency? what if two topics are inserted at the same time?
+    my $sth  = personality->sql('SELECT MAX(#<tid>) FROM #T<topic>');
+    my $mtid = $sth->fetchall_arrayref()->[0];
+    $mtid = $mtid->[0] if $mtid;
+    my $tid = $mtid || 0;
+    $tid++;
+    trace( 'Insert ', $mo->web, '.', $mo->topic, '@', $tid )
+      if $TRACE{action};
+
+    unshift( @$undos, [ "DELETE FROM #T<topic> WHERE tid=?", $tid ] );
+
+    personality->sql(
+        'INSERT INTO #T<topic> ('
+          . '#<tid>,#<web>,#<name>,#<timestamp>,#<text>,#<raw>'
+          . ')VALUES (?,?,?,?,?,?)',
+        $tid,
+        site2uc( $mo->web() ),
+        site2uc( $mo->topic() ),
+        time(),
+        site2uc( $mo->text() ),
+        site2uc( $mo->getEmbeddedStoreForm() )
+    );
+
+    foreach my $type ( keys %$mo ) {
+
+        next if $type =~ /^_/;
+
+        # Make sure the table exists.
+        my $tableSchema = _findOrCreateTable( $type, $mo );
+
+        next unless $tableSchema;
+
+        # The table might be in the schema but not in the database
+        # if it is deleted from the database while we are not looking.
+        # Table deletion is very rare, and admin only, so this is an
+        # acceptable risk.
+
+        # Insert this row
+        my $data = $mo->{$type};
+
+        foreach my $item (@$data) {
+
+            # All tables have 'tid'
+            my @kns = ('tid');
+
+            # Check that the table has the columns to accept this data (or
+            # they can be added)
+            foreach my $kn ( keys(%$item) ) {
+                my $col = _findOrCreateColumn( $kn, $tableSchema, $type );
+                push( @kns, $col ) if $col;
+            }
+
+            my $phs = join( ',', map { '?' } @kns );
+            my $cns = join( ',', map { "#<$_>" } @kns );
+            shift(@kns);    # lose tid
+            personality->sql(
+                "INSERT INTO #T<$type> ($cns) VALUES ($phs)",
+                $tid,
+                map {
+                    defined $item->{$_}
+                      ? _truncate( site2uc( $item->{$_} ),
+                        _column( $type, $_ )->{truncate_to} )
+                      : undef
+                } @kns
+            );
+
+            if ( $type eq 'FILEATTACHMENT' ) {
+                insert( $mo, $item->{name} );
+            }
+        }
+    }
 }
 
 =begin TML
@@ -667,99 +893,82 @@ sub insert {
 
     getDBH();
 
-    if ( defined $attachment ) {
-        ASSERT( $mo->web() )   if DEBUG;
-        ASSERT( $mo->topic() ) if DEBUG;
+    my @undos;
 
-        # Note that we DO NOT explicitly add the META:FILEATTACHMENT
+    eval {
+
+        if ( $mo->web && $mo->topic ) {
+            if ( defined $attachment ) {
+                _insertAttachment( $mo, $attachment, \@undos );
+            }
+            else {
+                _insertTopic( $mo, \@undos );
+            }
+        }
+        else {
+            ASSERT( !$mo->topic )  if DEBUG;
+            ASSERT( !$attachment ) if DEBUG;
+
+            # Currently no way to add a web. Webs are identified by
+            # a unique search over the topics table.
+        }
+    };
+    if ($@) {
+        error("DBIStoreContrib::insert failed: $@");
+        _undo( \@undos );
+    }
+}
+
+sub _remove {
+    my ( $mo, $attachment ) = @_;
+
+    my @tids = _getTIDs($mo);
+    return unless scalar @tids;
+
+    if ( defined $attachment ) {
+        ASSERT( $mo->web && $mo->topic ) if DEBUG;
+
+        # Note that we DO NOT explicitly remove the META:FILEATTACHMENT
         # entry table here.
         # That is done at a much higher level in Foswiki::Meta when the
-        # referring topic has it's meta-data rewritten. Here we (will)
-        # simply load a serialised version of the attachment data, if
-        # the serialised column is present in the schema.
-        if ( $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}{FILEATTACHMENT}
-            {serialised} )
+        # referring topic has it's meta-data rewritten.
+
+        # Here we simply clear down the serialised context stored for the
+        # attachment, if present.
+        if ( $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}
+            {FILEATTACHMENT}{text} )
         {
-
-            # Pull in the attachment data
-            my @tids = _getTIDs($mo);
-            ASSERT( scalar @tids ) if DEBUG;
-
-            my $data = 'TODO: load and serialise attachments';
             personality->sql(
-"UPDATE ${TABLE_PREFIX}FILEATTACHMENT SET serialised=? WHERE tid=? AND name=?",
-                $data, $tids[0], $attachment );
-        }
-    }
-    elsif ( $mo->topic() ) {
-
-        # SMELL: concurrency? what if two topics are inserted at the same time?
-        my $sth = personality->sql("SELECT MAX(tid) FROM ${TABLE_PREFIX}topic");
-        my $mtid = $sth->fetchall_arrayref()->[0];
-        $mtid = $mtid->[0] if $mtid;
-        my $tid = $mtid || 0;
-        $tid++;
-        trace( 'Insert ', $mo->web, '.', $mo->topic, '@', $tid )
-          if $TRACE{action};
-
-        personality->sql(
-"INSERT INTO ${TABLE_PREFIX}topic (tid,web,name,text,raw) VALUES (?,?,?,?,?)",
-            $tid,
-            site2uc( $mo->web() ),
-            site2uc( $mo->topic() ),
-            site2uc( $mo->text() ),
-            site2uc( $mo->getEmbeddedStoreForm() )
-        );
-
-        foreach my $type ( keys %$mo ) {
-
-            next if $type =~ /^_/;
-
-            # Make sure the table exists
-            my $tableSchema = _findOrCreateTable( $type, $mo );
-
-            next unless $tableSchema;
-
-            # The table might be in the schema but not in the database
-            # if it is deleted from the database while we are not looking.
-            # Table deletion is very rare, and admin only, so this is an
-            # acceptable risk.
-
-            # Insert this row
-            my $data = $mo->{$type};
-
-            foreach my $item (@$data) {
-
-                # All tables have 'tid'
-                my @kns = ('tid');
-
-                # Check that the table has the columns to accept this data (or
-                # they can be added)
-                foreach my $kn ( keys(%$item) ) {
-                    my $col = _findOrCreateColumn( $kn, $tableSchema, $type );
-                    push( @kns, $col ) if $col;
-                }
-
-                my $phs = join( ',', map { '?' } @kns );
-                my $cns = join( ',', map { personality->identifier($_) } @kns );
-                shift(@kns);    # lose tid
-                my $tn = personality->identifier( $TABLE_PREFIX . $type );
-                personality->sql(
-                    "INSERT INTO $tn ($cns) VALUES ($phs)",
-                    $tid,
-                    map {
-                        defined $item->{$_}
-                          ? _truncate( site2uc( $item->{$_} ),
-                            _column( $type, $_ )->{truncate_to} )
-                          : undef
-                    } @kns
-                );
-            }
+                'UPDATE #T<FILEATTACHMENT> SET text=#<> WHERE tid=? AND name=?',
+                $tids[0], $attachment
+            );
         }
     }
     else {
-        # Currently no way to add a web. Webs are identified by
-        # a unique search over the topics table.
+        # Remove topic *or web*
+
+        # Get list of our tables from metatypes
+        my $sth = personality->sql('SELECT #<name> FROM #T<metatypes>');
+        my @tables =
+          grep { personality->table_exists($_) }
+          map  { $_->[0] } @{ $sth->fetchall_arrayref() };
+
+        foreach my $tid (@tids) {
+
+            trace( 'Remove ', $mo->getPath(), '@', $tid )
+              if $TRACE{action};
+
+            # Iterate over all our tables removing the tid
+            foreach my $tr ( 'topic', @tables ) {
+                eval {
+                    personality->sql( "DELETE FROM #T<$tr> WHERE #<tid>=?",
+                        $tid );
+                };
+                if ($@) {
+                    error( "Failed to delete $tid from $tr: ", $@ );
+                }
+            }
+        }
     }
 }
 
@@ -778,53 +987,16 @@ sub remove {
 
     getDBH();
 
-    my @tids = _getTIDs($mo);
-    return unless scalar @tids;
+    # Not possible to undo any part of a remove, so don't bother trying
 
-    foreach my $tid (@tids) {
-        if ( defined $attachment ) {
+    eval { _remove( $mo, $attachment ); };
 
-            # SMELL: theoretically possible to remove an attachment on
-            # all topics in a web?
-            # Note that we DO NOT explicitly remove the META:FILEATTACHMENT
-            # entry table here.
-            # That is done at a much higher level in Foswiki::Meta when the
-            # referring topic has it's meta-data rewritten.
-
-            # Here we simply clear down the raw data stored for the
-            # attachment, if present.
-            if ( $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema}
-                {FILEATTACHMENT}{serialised} )
-            {
-                my $sth = personality->sql(
-                    "SELECT tid FROM ? WHERE web=? AND name=?",
-                    $TABLE_PREFIX . 'topic',
-                    site2uc( $mo->web ),
-                    site2uc( $mo->topic )
-                );
-                my @tids = map { $_->[0] } @{ $sth->fetchall_arrayref() };
-                ASSERT( scalar(@tids) ) if DEBUG;
-
-                personality->sql(
-"DELETE FROM ${TABLE_PREFIX}FILEATTACHMENT WHERE tid=? AND name=?",
-                    $tids[0], $attachment
-                );
-            }
-        }
-        else {
-            trace( 'Remove ', $mo->web, '.', $mo->topic, '@', $tid )
-              if $TRACE{action};
-            my $sth =
-              personality->sql("SELECT name FROM ${TABLE_PREFIX}metatypes");
-            my @tables = map { $_->[0] } @{ $sth->fetchall_arrayref() };
-            foreach my $tr ( 'topic', @tables ) {
-                my $t = $TABLE_PREFIX . $tr;
-                if ( personality->table_exists($t) ) {
-                    $t = personality->identifier($t);
-                    personality->sql( "DELETE FROM $t WHERE tid=?", $tid );
-                }
-            }
-        }
+    if ($@) {
+        error(  'DBIStoreContrib::remove '
+              . $mo->getPath()
+              . ( $attachment ? ":$attachment" : '' )
+              . ' failed: '
+              . $@ );
     }
 }
 
@@ -834,21 +1006,81 @@ sub remove {
 
 Renames a FW object in the database.
 
-May throw an exception if SQL failed.
-
 =cut
 
 sub rename {
     my ( $mo, $mn ) = @_;
 
+    ASSERT( $mo->web ) if DEBUG;
+
     getDBH();
 
-    if ( $mo->web() && !$mo->topic() ) {
-        my $oldWebName = site2uc( $mo->web() );
-        my $newWebName = site2uc( $mn->web() );
+    my $ow = site2uc( $mo->web() );
 
-        my $sql = "UPDATE ${TABLE_PREFIX}topic SET web=? WHERE web=?";
-        personality->sql( $sql, $newWebName, $oldWebName );
+    eval {
+        if ( $mo->topic && $mn->topic && $mn->topic ne $mo->topic )
+        {
+            # rename topic
+            my $ot = site2uc( $mn->topic );
+            my $nt = site2uc( $mn->topic );
+            personality->sql(
+                "UPDATE #T<topic> SET #<name>=? WHERE #<web>=? AND #<name>=?",
+                $nt, $ow, $ot );
+        }
+
+        if ( $mo->web && $mn->web && $mn->web ne $mo->web ) {
+
+            # Rename web
+            my $nw = site2uc( $mn->web() );
+            personality->sql( "UPDATE #T<topic> SET #<web>=? WHERE #<web>=?",
+                $nw, $ow );
+        }
+    };
+    if ($@) {
+        error(  'DBIStoreContrib::rename '
+              . $mo->getPath() . ' to '
+              . $mn->getPath
+              . ' failed: '
+              . $@ );
+    }
+}
+
+=begin TML
+---++ StaticMethod clean($session)
+
+Clean out dead topics (topics in the DB that have no corresponding
+wiki topic)
+
+=cut
+
+sub clean {
+    my $session = shift;
+
+    getDBH();
+
+    # Scan the DB and locate dead topics
+    my @dead_tids;
+    my $sth = personality->sql('SELECT #<tid>,#<web>,#<name> FROM #T<topic>');
+    my $topics = $sth->fetchall_arrayref();
+    foreach my $trow (@$topics) {
+        my ( $tid, $web, $topic ) = @$trow;
+        unless ( $session->webExists($web)
+            && $session->topicExists( $web, $topic ) )
+        {
+            trace("Cleaning out $web.$topic") if $TRACE{action};
+            push( @dead_tids, $tid );
+        }
+    }
+
+    return unless scalar(@dead_tids);
+
+    # Purge the dead tids from all our tables
+    $sth = personality->sql('SELECT #<name> FROM #T<metatypes>');
+    my $tables = $sth->fetchall_arrayref();
+    my $dying = join( ',', @dead_tids );
+    foreach my $trow ( @$tables, ['topic'] ) {
+        my $table = $personality->from_db( $trow->[0] );
+        personality->sql("DELETE FROM #T<$table> WHERE #<tid> IN ($dying)");
     }
 }
 
@@ -868,6 +1100,7 @@ sub query {
     my $sql = shift;
 
     getDBH();
+
     my $sth = personality->sql($sql);
     my $rv  = $sth->fetchall_arrayref();
 
@@ -892,8 +1125,6 @@ sub reset {
 
     # Connect with hard reset
 
-    trace('HARD RESET') if $TRACE{action};
-
     if ($dbh) {
         $dbh->disconnect();
         undef $dbh;
@@ -901,17 +1132,19 @@ sub reset {
 
     getDBH();
 
+    trace('HARD RESET') if $TRACE{action};
+
     # Build a list of tables se need to drop. Use a hash to avoid
     # duplicates.
-    my %tables = map { $TABLE_PREFIX . $_ => 1 } (
+    my %tables = map { $_ => 1 } (
         grep { !/^_/ }
           keys %{ $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema} }
     );
 
     # The metatypes table records tables we previously created, some
     # of which might have been dropped from the schema, so we need to check.
-    if ( personality->table_exists("${TABLE_PREFIX}metatypes") ) {
-        my $sth = personality->sql("SELECT name FROM ${TABLE_PREFIX}metatypes");
+    if ( personality->table_exists('metatypes') ) {
+        my $sth = personality->sql('SELECT #<name> FROM #T<metatypes>');
         my @mts = map { $_->[0] } @{ $sth->fetchall_arrayref() };
         foreach my $t (@mts) {
             $t = personality->from_db($t);
@@ -921,8 +1154,7 @@ sub reset {
 
     foreach my $table ( keys %tables ) {
         if ( personality->table_exists($table) ) {
-            my $tn = personality->identifier($table);
-            personality->sql("DROP TABLE $tn");
+            personality->sql("DROP TABLE #T<$table>");
         }
     }
 

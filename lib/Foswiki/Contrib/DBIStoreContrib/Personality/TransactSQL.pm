@@ -10,7 +10,7 @@ use Encode ();
 use DBI qw(:sql_types);
 
 use Foswiki::Contrib::DBIStoreContrib qw(NAME NUMBER STRING UNKNOWN
-  BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL trace %TRACE);
+  BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL trace %TRACE expandIDs);
 use Foswiki::Contrib::DBIStoreContrib::Personality ();
 our @ISA = ('Foswiki::Contrib::DBIStoreContrib::Personality');
 
@@ -99,7 +99,7 @@ SQL
 
 sub sql {
     my $this = shift;
-    my $sql  = shift;
+    my $sql  = expandIDs(shift);
 
     if ( $TRACE{sql} ) {
         my @c = caller;

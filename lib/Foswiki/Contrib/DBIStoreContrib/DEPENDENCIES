@@ -1,4 +1,8 @@
-DBI,>=0.1,cpan,Required.
+DBI,>=0.1,cpan,Required
+Encode,>=0,cpan,required
 DBD::Pg,>=1.49,cpan,Optional,Required for PostgreSQL.
 DBD::MySql,>=0,cpan,Optional,Required for MySQL.
-DBD::SQLite,>=0,cpan,Optional,Required for SQLite, and for testing.
+DBD::SQLite,>=0,cpan,Optional,Required for SQLite.
+DBD::ODBC,>=0,cpan,Optional,Required for ODBC
+File::Temp,>=0,cpan,optional,Required for serialised attachments
+Foswiki::Contrib::StringifierContrib,>=0,perl,optional,Required for serialised attachments

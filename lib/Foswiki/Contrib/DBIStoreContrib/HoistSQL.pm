@@ -103,6 +103,7 @@ sub _SELECT {
         $sql .= " $clause "
           . join( ',', map { $_ =~ /^SELECT/ ? "($_)" : $_ } @$val );
     }
+    trace("hoist_$sql") if $TRACE{hoist};
     return $sql;
 }
 
@@ -115,6 +116,7 @@ sub _AS {
         if ( defined $alias ) {
             $what = "($what)"
               if $what !~ /^(\w|`)+$/
+              && $what !~ /^#T?<[^>]+>$/
               && $what !~ /^(["']).*\1$/
               && $what !~ /^\([^()]*\)$/;
             push( @terms, "$what AS $alias" );
@@ -303,11 +305,12 @@ sub hoist {
         trace( ' Clarified ', $original, ' as ', recreate($query) );
     }
 
-    my %h = _hoist( $query, 'topic' );
+    my %h = _hoist( $query, '#<topic>' );
+
     my $alias = _alias(__LINE__);    # SQL server requires this!
     if ( $h{is_table_name} ) {
         $h{sql} =
-          "${TABLE_PREFIX}topic.tid IN (SELECT tid FROM ($h{sql}) AS $alias)";
+          "#T<topic>.#<tid> IN (SELECT #<tid> FROM ($h{sql}) AS $alias)";
     }
     elsif ( $h{is_select} ) {
 
@@ -321,7 +324,7 @@ sub hoist {
              # can't use an aliased column in the WHERE condition of the same
              # SELECT.
         $h{sql} =
-"${TABLE_PREFIX}topic.tid IN (SELECT tid FROM (SELECT * FROM ($h{sql}) AS $a2 $where) AS $alias)";
+"#T<topic>.#<tid> IN (SELECT #<tid> FROM (SELECT * FROM ($h{sql}) AS $a2 $where) AS $alias)";
     }
     else {
         $h{sql} = personality->is_true( $h{type}, $h{sql} );
@@ -393,7 +396,7 @@ sub _hoist {
             if ( $name =~ /^META:(\w+)$/ ) {
 
                 # Name of a table
-                $result{sql} = personality->identifier( $TABLE_PREFIX . $1 );
+                $result{sql}           = "#T<$1>";
                 $result{is_table_name} = 1;
                 $result{type}          = STRING;
             }
@@ -404,8 +407,7 @@ sub _hoist {
             else {
 
                 # Name of a field
-                $name = personality->identifier($name);
-                $result{sql} = $in_table ? "$in_table.$name" : $name;
+                $result{sql} = $in_table ? "$in_table." : '' . "#<$name>";
                 $result{type} = STRING;
             }
         }
@@ -426,7 +428,7 @@ sub _hoist {
 
             if ( $lhs{is_table_name} && $in_table ) {
 
-  #-MySQL                $tid_constraint = " AND $from_alias.tid=$in_table.tid";
+#-MySQL                $tid_constraint = " AND $from_alias.#<tid>=$in_table.#<tid>";
             }
         }
         else {
@@ -475,13 +477,12 @@ sub _hoist {
         $result{sel} = $rhs->{params}[0];
 
         my $alias   = _alias(__LINE__);
-        my @selects = ("$alias.tid");
+        my @selects = ("$alias.#<tid>");
         if ( $lhs{is_select} ) {
             push( @selects, $result{sel} );
         }
         elsif ( $lhs{is_table_name} ) {
-            push( @selects,
-                "$alias." . personality->identifier( $result{sel} ) );
+            push( @selects, "$alias.#<$result{sel}>" );
         }
         else {
             _abort( "Expected a table on the LHS of '.':", $node );
@@ -508,14 +509,15 @@ sub _hoist {
         my $lhs_where;
         my @selects;
         my $wtn =
-          personality->strcat( "$topic_alias.web", "'.'", "$topic_alias.name" );
+          personality->strcat( "$topic_alias.#<web>", "'.'",
+            "$topic_alias.#<name>" );
         if ( $lhs{is_select} ) {
             my $tnames = _alias(__LINE__);
             push( @selects, _AS( $lhs{sql} => $tnames ) );
             my $tname_sel = $tnames;
-            $tname_sel = "$tnames." . personality->identifier( $lhs{sel} )
-              if $lhs{sel};
-            $lhs_where = "($topic_alias.name=$tname_sel OR ($wtn)=$tname_sel)";
+            $tname_sel = "$tnames.#<$lhs{sel}>" if $lhs{sel};
+            $lhs_where =
+              "($topic_alias.#<name>=$tname_sel OR ($wtn)=$tname_sel)";
         }
         elsif ( $lhs{is_table_name} ) {
 
@@ -526,7 +528,7 @@ sub _hoist {
 
             # Not a selector or simple table name, must be a simple
             # expression yielding a selector
-            $lhs_where = "($lhs{sql}) IN ($topic_alias.name,$wtn)";
+            $lhs_where = "($lhs{sql}) IN ($topic_alias.#<name>,$wtn)";
         }
 
         # Expand the RHS *without* a constraint on the topic table
@@ -541,10 +543,10 @@ sub _hoist {
 
         my $sexpr_alias = _alias(__LINE__);
 
-        my $tid_constraint = "$sexpr_alias.tid IN ("
+        my $tid_constraint = "$sexpr_alias.#<tid> IN ("
           . _SELECT(
-            select  => 'tid',
-            FROM    => _AS( 'topic' => $topic_alias ),
+            select  => '#<tid>',
+            FROM    => _AS( '#T<topic>' => $topic_alias ),
             WHERE   => $lhs_where,
             comment => __LINE__
           ) . ")";
@@ -597,15 +599,15 @@ sub _hoist {
 
                     # Don't propagate tids from the LHS
                     $lhs_sql = _SELECT(
-                        select  => _AS( 'tid', $lhs_alias ),
-                        FROM    => 'topic',
+                        select  => _AS( '#<tid>', $lhs_alias ),
+                        FROM    => '#T<topic>',
                         WHERE   => 'EXISTS(' . $lhs{sql} . ')',
                         comment => __LINE__
                     );
                 }
                 else {
                     $lhs_sql = _SELECT(
-                        select  => 'tid',
+                        select  => '#<tid>',
                         FROM    => _AS( $lhs{sql}, $lhs_alias ),
                         comment => __LINE__
                     );
@@ -615,15 +617,15 @@ sub _hoist {
 
                     # Don't propagate tids from the RHS
                     $rhs_sql = _SELECT(
-                        select  => _AS( 'tid', $rhs_alias ),
-                        FROM    => 'topic',
+                        select  => _AS( '#<tid>', $rhs_alias ),
+                        FROM    => '#T<topic>',
                         WHERE   => 'EXISTS(' . $rhs{sql} . ')',
                         comment => __LINE__
                     );
                 }
                 else {
                     $rhs_sql = _SELECT(
-                        select  => 'tid',
+                        select  => '#<tid>',
                         FROM    => _AS( $rhs{sql}, $rhs_alias ),
                         comment => __LINE__
                     );
@@ -633,7 +635,7 @@ sub _hoist {
 
                 $result{sql} = _SELECT(
                     select =>
-                      [ 'DISTINCT ' . _AS( $TRUE => $result{sel} ), 'tid' ],
+                      [ 'DISTINCT ' . _AS( $TRUE => $result{sel} ), '#<tid>' ],
                     FROM    => _AS( $union_sql, $union_alias ),
                     comment => __LINE__
                 );
@@ -655,16 +657,14 @@ sub _hoist {
                         $node
                     );
                 }
-                my $l_sel =
-                  "$lhs_alias." . personality->identifier( $lhs{sel} );
-                my $r_sel =
-                  "$rhs_alias." . personality->identifier( $rhs{sel} );
+                my $l_sel = "$lhs_alias.#<$lhs{sel}>";
+                my $r_sel = "$rhs_alias.#<$rhs{sel}>";
 
                 my ( $expr, $optype ) = &$opfn(
                     $l_sel => $lhs{type},
                     $r_sel => $rhs{type}
                 );
-                my $where = "($lhs_alias.tid=$rhs_alias.tid)";
+                my $where = "($lhs_alias.#<tid>=$rhs_alias.#<tid>)";
                 if ( $optype == BOOLEAN ) {
 
                     $where .= " AND ($expr)";
@@ -672,11 +672,11 @@ sub _hoist {
                     $optype = $TRUE_TYPE;
                 }
 
-                my $ret_tid   = "$lhs_alias.tid";
+                my $ret_tid   = "$lhs_alias.#<tid>";
                 my $tid_table = '';
                 if ( $rhs{ignore_tid} || $lhs{ignore_tid} ) {
-                    $ret_tid   = 'topic.tid';
-                    $tid_table = 'topic,';
+                    $ret_tid   = '#T<topic>.#<tid>';
+                    $tid_table = '#T<topic>,';
                 }
                 $result{sql} = _SELECT(
                     select =>
@@ -758,8 +758,7 @@ sub _genSingleTableSELECT {
 
     my $alias = _alias(__LINE__);
     my $sel   = $alias;
-    $sel = "$alias." . personality->identifier( $table->{sel} )
-      if $table->{sel};
+    $sel = "$alias.#<$table->{sel}>" if $table->{sel};
 
     $result->{sel}        = _alias(__LINE__);
     $result->{ignore_tid} = 0;
@@ -772,13 +771,13 @@ sub _genSingleTableSELECT {
         $optype = $TRUE_TYPE;
     }
 
-    my $ret_tid = "$alias.tid";
+    my $ret_tid = "$alias.#<tid>";
     my @froms = ( _AS( $table->{sql} => $alias ) );
     if ( $table->{ignore_tid} ) {
 
         # ignore tid coming from the subexpression
-        $ret_tid = 'topic.tid';
-        unshift( @froms, 'topic' );
+        $ret_tid = '#T<topic>.#<tid>';
+        unshift( @froms, '#T<topic>' );
     }
 
     $result->{sql} = _SELECT(

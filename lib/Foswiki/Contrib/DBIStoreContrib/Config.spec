@@ -67,6 +67,7 @@ $Foswiki::cfg{Extensions}{DBIStoreContrib}{DBIAttributes} = {};
 # Specify how to construct the database. Some databases may require a
 # different schema, or plugins may require an extension to the schema.
 # See http://foswiki.org/Extensions/DBIStoreContrib for a detailed discussion.
+# Note especially the function of the FILEATTACHMENT.text field.
 $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema} = {
   _DEFAULT => { type => 'TEXT', default => '' },
   _INDEXED => { type => 'TEXT', index => 1 },
@@ -85,7 +86,8 @@ $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema} = {
     date => '_DEFAULT',
     user => '_INDEXED',
     comment => '_DEFAULT',
-    attr => '_DEFAULT'
+    attr => '_DEFAULT',
+    text => '_DEFAULT'
   },
   FORM => {
     tid  => { type => 'INT' },
@@ -122,6 +124,7 @@ $Foswiki::cfg{Extensions}{DBIStoreContrib}{Schema} = {
     tid  => { type => 'INT', primary => 1 },
     web  => { basetype => '_INDEXED', unique => 'webtopic' },
     name => { basetype => '_INDEXED', unique => 'webtopic' },
+    timestamp => { type => 'INT' },
     text => '_DEFAULT',
     raw  => '_DEFAULT'
   },

@@ -23,14 +23,16 @@ use Foswiki::Meta ();
 my @traces;
 my $dbitrace;
 my @loads;
-my @reloads;
+my $reload;
 my $sql;
 my $query;
 my $reset;
 my $web   = '*';
 my $topic = '*';
+my $clean;
 
 my $result = Getopt::Long::GetOptions(
+    'clean'      => \$clean,
     'dbitrace=s' => \$dbitrace,
     'help'       => sub {
         if ( $ARGV[0] eq 'trace' ) {
@@ -44,13 +46,13 @@ my $result = Getopt::Long::GetOptions(
             );
         }
     },
-    'load=s'   => \@loads,
-    'query=s'  => \$query,
-    'reload=s' => \@reloads,
-    'reset'    => \$reset,
-    'sql:s'    => \$sql,
-    'topic=s'  => \$topic,
-    'trace=s'  => \@traces
+    'load=s'  => \@loads,
+    'query=s' => \$query,
+    'reload'  => \$reload,
+    'reset'   => \$reset,
+    'sql:s'   => \$sql,
+    'topic=s' => \$topic,
+    'trace=s' => \@traces
 );
 
 foreach my $o ( split( /,/, join( ',', @traces ) ) ) {
@@ -80,41 +82,34 @@ if ($reset) {
     $opsDone++;
 }
 
-# $full = 1 means unload before load, 0 means just load
-sub _refresh {
-    my ( $full, $topics ) = @_;
-
-    for my $wt (@$topics) {
-        if ( $wt eq '*' ) {
-            $topics = ['*'];
-            last;
-        }
-    }
-    foreach my $wt (@$topics) {
-        if ( $wt eq '*' ) {
-            Foswiki::Contrib::DBIStoreContrib::load( Foswiki::Meta->new($fw),
-                $full );
-        }
-        else {
-            my ( $w, $t ) =
-              $fw->normalizeWebTopicName( undef, Encode::decode_utf8($wt) );
-
-            my $mo = Foswiki::Meta->load( $fw, $w, $t eq '*' ? undef : $t );
-            Foswiki::Contrib::DBIStoreContrib::load( $mo, $full, $fw );
-        }
-    }
-    $opsDone++;
-}
-
-# Topic(s) to be reloaded
-if ( scalar @reloads ) {
-    _refresh( 1, \@reloads );
+if ($clean) {
+    Foswiki::Contrib::DBIStoreContrib::clean($fw);
     $opsDone++;
 }
 
 # Topic(s) to be loaded
 if ( scalar @loads ) {
-    _refresh( 0, \@loads );
+    foreach my $wt (@loads) {
+        $wt .= '.*' unless $wt =~ /\./;
+        my ( $w, $t ) = $fw->normalizeWebTopicName( undef, $wt );
+
+        # Convert wildcards to perl regexes
+        if ( $w eq '*' ) {
+            $w = undef;
+        }
+        else {
+            $w =~ s/\*/.*/g;
+        }
+        if ( $t eq '*' ) {
+            $t = undef;
+        }
+        else {
+            $t =~ s/\*/.*/g;
+        }
+
+        my $wo = Foswiki::Meta->new($fw);
+        Foswiki::Contrib::DBIStoreContrib::load( $wo, $w, $t, $reload );
+    }
     $opsDone++;
 }
 
@@ -132,16 +127,15 @@ if ( defined $query ) {
             $query .= $_;
         }
     }
-    $query = Encode::decode_utf8($query);
     require Foswiki::Contrib::DBIStoreContrib::HoistSQL;
     my $meta = Foswiki::Meta->new( $fw, $web, $topic );
     $query =
       $Foswiki::Plugins::SESSION->search->parseSearch( $query,
         { type => 'query' } );
     $sql = Foswiki::Contrib::DBIStoreContrib::HoistSQL::hoist($query);
-    $sql = "SELECT web,name FROM \"${TABLE_PREFIX}topic\" WHERE $sql";
-    $sql .= " AND name LIKE '$topic'" if $topic && $topic ne '%';
-    $sql .= " AND web LIKE '$web'"    if $web   && $web   ne '%';
+    $sql = "SELECT #<web>,#<name> FROM #T<topic> WHERE $sql";
+    $sql .= " AND #<name> LIKE '$topic'" if $topic && $topic ne '%';
+    $sql .= " AND #<web> LIKE '$web'"    if $web   && $web   ne '%';
 
     $opsDone++;
 }
@@ -155,7 +149,9 @@ if ( defined $sql ) {
     }
     my $rv = Foswiki::Contrib::DBIStoreContrib::query($sql);
     if ( $sql =~ /^\s*select\W/i ) {
-        print Foswiki::Contrib::DBIStoreContrib::fmt($rv) . "\n";
+        foreach my $topic (@$rv) {
+            trace( $topic->[0], '.', $topic->[1] );
+        }
     }
     else {
         print "$sql OK\n";
@@ -188,22 +184,22 @@ Command-line management for DBIStoreContrib
 =item B<--reset>
 
 Clear down the database, and recreate the base tables from the schema
-described in C<LocalSite.cfg>. Does not load any webs or topics, unless
-C<--load> or C<--reload> is also given.
-Ensure the wiki is not in use before resetting the database!
+described in C<LocalSite.cfg>. Does not load any webs or topics,
+unless C<--load> is also given.  Ensure the wiki is not in use before
+resetting the database!
 
-=item B<--load> topic
+=item B<--load> webtopic
 
-Load the given topic if it is present in the backing store
-but missing from the database.
+Load the given web or topic if there is a more recent version in the backing
+store or it is missing from the database. Simple * wildcards are supported.
+For example --load Sandbox.ExampleTopic to load one topic, --load Webname.*
+will load all topics in web Webname, and C<--load *.*> will load all topics in
+all webs.
 
-C<--load *> can be used to load all missing topics.
+=item B<--reload>
 
-=item B<--reload> topic
-
-Reload the given topic from the backing store. If the topic is already in the DB
-it is completely unloaded first before reloading. You can give as many C<--reload>
-options as you want.
+Force all topics passed to --load to be loaded, even if the database
+appears up to date.
 
 C<--reload *> can be used to reload all topics in the store.
 
@@ -231,6 +227,14 @@ read a query from standard input.
 Enable a trace option. C<--help trace> can be used to list trace keys.
 C<--trace all> will switch on all trace options. Trace output is printed
 to STDERR.
+
+=item B<--clean>
+
+In theory, nothing ever gets deleted from a Foswiki database. In
+reality, sometimes you have to delete topics, and even entire webs. In
+this case, the DBIStoreContrib database has to be cleaned, to delete
+entries that no longer correspond to live topics. Cleaning is done
+before any --query or --sql is executed.
 
 =item B<--dbitrace> trace
 

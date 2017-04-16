@@ -89,8 +89,14 @@ sub query {
 
             $expr = quotemeta($expr) unless ( $options->{type} eq 'regex' );
             $expr = "(?i:$expr)" unless $options->{casesensitive};
-
-            push( @ors, "${invert}raw =~ '$expr'" );
+            if ( $options->{scope} =~ /(text|all)/ ) {
+                push( @ors, "${invert}raw =~ '$expr'" );
+            }
+            if ( $options->{scope} =~ /(attachments|all)/
+                && )
+            {
+                push( @ors, "${invert}raw =~ '$expr'" );
+            }
         }
         push( @ands, '(' . join( $invert ? ' AND ' : ' OR ', @ors ) . ')' );
     }
