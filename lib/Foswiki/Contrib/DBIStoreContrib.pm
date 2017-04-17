@@ -199,6 +199,37 @@ sub error {
     }
 }
 
+sub _fmt_trace {
+    my ($data) = @_;
+
+    if ( !defined($data) ) {
+        return 'undef';
+    }
+    elsif ( !ref($data) || ref($data) eq 'Regexp' ) {
+        return (
+            length(
+                do { no warnings "numeric"; $data & "" }
+            )
+        ) ? $data : "'$data'";
+    }
+    elsif ( ref($data) eq 'ARRAY' ) {
+        return '[' . join( ',', map { _fmt_trace($_) } @$data ) . ']';
+    }
+    elsif ( ref($data) eq 'HASH' ) {
+        return '{'
+          . join(
+            ',', map { $_ . '=>' . _fmt_trace( $data->{$_} ) }
+              keys %$data
+          ) . '}';
+    }
+    elsif ( UNIVERSAL::can( $data, 'stringify' ) ) {
+        return $data->stringify();
+    }
+    else {
+        die "Can't _fmt_trace a " . ref($data);
+    }
+}
+
 # Used throughout the module. Parameters are iterated through to generate
 # the printed string. During the iteration, if the previous parameter
 # ends in #, treat the current as a value. This is so
@@ -206,27 +237,7 @@ sub error {
 # is a string.
 sub trace {
 
-    # Determine if parameter is numeric or a string, print quotes if it's
-    # a string.
-    my @s;
-    my $nv = 0;
-    foreach (@_) {
-        my $v = $_;
-        if ($nv) {
-            $v = (
-                length(
-                    do { no warnings "numeric"; $v & "" }
-                )
-            ) ? $v : "'$v'";
-            $nv = 0;
-        }
-        else {
-            $nv = ( $v =~ s/#$// );
-        }
-        push( @s, $v );
-    }
-
-    my $s = join( '', @s );
+    my $s = join( '', map { ref($_) ? _fmt_trace($_) : $_ } @_ );
     if ( $TRACE{cli} ) {
         print STDERR "$s\n";
     }

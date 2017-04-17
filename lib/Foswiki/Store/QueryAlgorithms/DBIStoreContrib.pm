@@ -177,9 +177,10 @@ sub query {
     # can use to refine the topic set
 
     require Foswiki::Contrib::DBIStoreContrib::HoistSQL;
+
     my $hoisted = Foswiki::Contrib::DBIStoreContrib::HoistSQL::hoist($query);
     my $sql =
-        "SELECT #<web>,#<name> FROM #T<XX2topic> WHERE "
+        "SELECT #<web>,#<name> FROM #T<topic> WHERE "
       . $hoisted
       . _expand_arguments( \%hoist_control )
       . ' ORDER BY #<web>,#<name>';
@@ -190,7 +191,8 @@ sub query {
       if $TRACE{search};
 
     my $topicSet = [];
-    my $rv       = Foswiki::Contrib::DBIStoreContrib::query($sql);
+
+    my $rv = Foswiki::Contrib::DBIStoreContrib::query($sql);
     foreach my $row (@$rv) {
         push( @$topicSet, "$row->[0]/$row->[1]" );
     }
@@ -304,10 +306,11 @@ sub _expand_relist {
     }
 
     if ( scalar(@in) == 1 ) {
-        push( @exprs, "$column='$in[0]'" );
+        push( @exprs, "#<$column>='$in[0]'" );
     }
     elsif ( scalar(@in) > 1 ) {
-        push( @exprs, "$column IN ( " . join( ',', map { "'$_'" } @in ) . ')' );
+        push( @exprs,
+            "#<$column> IN ( " . join( ',', map { "'$_'" } @in ) . ')' );
     }
     return ( $negate ? 'NOT ' : '' ) . '(' . join( ' OR ', @exprs ) . ')';
 }

@@ -67,38 +67,35 @@ sub query {
         # flag for AND NOT search
         my $invert = ( $tokenCopy =~ s/^\!// ) ? 'NOT ' : '';
 
-        # scope can be 'topic', 'text' or "all"
-        # scope='topic', e.g. Perl search on topic name:
-        $options->{scope} = 'text' unless defined $options->{'scope'};
+        # scope can be 'topic', 'text', 'attachments' or "all"
+        # scope='topic', search on topic name:
+        $options->{scope} = 'text' unless $options->{'scope'};
         $options->{type}          ||= 'literal';
         $options->{casesensitive} ||= 0;
 
         $tokenCopy = "\\b$tokenCopy\\b" if $options->{wordboundaries};
 
-        if ( $options->{scope} ne 'text' ) {    # topic or all
+        if ( $options->{scope} =~ /^(topic|all)$/ ) {
             my $expr = $tokenCopy;
 
             $expr = quotemeta($expr) unless ( $options->{type} eq 'regex' );
             $expr = "(?i:$expr)" unless $options->{casesensitive};
-            push( @ors, "${invert}name =~ '$expr'" );
+            push( @ors, "name =~ '$expr'" );
         }
 
-        # scope='text', e.g. grep search on topic text:
-        if ( $options->{scope} ne 'topic' ) {    # text or all
+        if ( $options->{scope} =~ /^(text|attachments|all)$/ ) {
             my $expr = $tokenCopy;
 
             $expr = quotemeta($expr) unless ( $options->{type} eq 'regex' );
             $expr = "(?i:$expr)" unless $options->{casesensitive};
             if ( $options->{scope} =~ /(text|all)/ ) {
-                push( @ors, "${invert}raw =~ '$expr'" );
+                push( @ors, "raw =~ '$expr'" );
             }
-            if ( $options->{scope} =~ /(attachments|all)/
-                && )
-            {
-                push( @ors, "${invert}raw =~ '$expr'" );
+            if ( $options->{scope} =~ /(attachments|all)/ ) {
+                push( @ors, "attachments.text =~ '$expr'" );
             }
         }
-        push( @ands, '(' . join( $invert ? ' AND ' : ' OR ', @ors ) . ')' );
+        push( @ands, $invert . '(' . join( ' OR ', @ors ) . ')' );
     }
 
     my $queryParser = Foswiki::Query::Parser->new();
@@ -109,6 +106,7 @@ sub query {
 
     Foswiki::Store::QueryAlgorithms::DBIStoreContrib->new()
       ->query( $query, $inputTopicSet, $session, $options );
+
 }
 
 1;

@@ -3,14 +3,14 @@
 <verbatim>
 Plain search options
    * Set SOP = topic="DBIStoreTest*" nonoise="on" format="" footer="$ntopics" separator=""
-Query search options
-   * Set QOP = type="query" %SOP%
 Number of topics expected
    * Set NT = %SEARCH{%SOP% "P"}%
 
+Query search options
+   * Set QOP = type="query" %SOP%
    * Set QEQ = %cond% | %IF{"%res%=0%SEARCH{%QOP% "%cond%"}%" then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt  (got $percentSEARCH{$percentQOP$percent $quot%cond%$quot}$percent expected %res%)"}%
    * Set QGT = %IF{"0%SEARCH{%QOP% "%cond%"}%>%res%" then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt (got $percentSEARCH{$percentQOP$percent $quot%cond%$quot}$percent expected %res%)"}% | %cond%
-
+   * Set NTQ = %IF{"%NT%>0" then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt "}%
    * Set ITE = then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt "
 </verbatim>
 -->
@@ -20,7 +20,7 @@ have to be present in the database cache for the tests to work.
 
 <!-- TA number of hist TB search query TC -->
 | *Test* | *Query Expression* | *Result* |
-| Non-query search | %NT%>0 | %IF{"%NT%>0" then="$percntGREEN$percnt OK $percntENDCOLOR$percnt " else=" $percntRED$percnt *FAIL* $percntENDCOLOR$percnt "}% |
+| Non-query search | %NT%>0 | %NTQ% |
 | Regex search | "fruitbat" | %IF{" 1 =0%SEARCH{ "fruitbat" type="regex" %SOP%}%" %ITE% }% ||
 | Regex search | "fruit[^b]at" | %IF{" 0 =0%SEARCH{ "fruit[^b]at" type="regex" %SOP%}%" %ITE% }% ||
 | False | %QEQ{cond="0" res="0"}% |

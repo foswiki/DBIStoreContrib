@@ -103,7 +103,6 @@ sub _SELECT {
         $sql .= " $clause "
           . join( ',', map { $_ =~ /^SELECT/ ? "($_)" : $_ } @$val );
     }
-    trace("hoist_$sql") if $TRACE{hoist};
     return $sql;
 }
 
@@ -116,7 +115,7 @@ sub _AS {
         if ( defined $alias ) {
             $what = "($what)"
               if $what !~ /^(\w|`)+$/
-              && $what !~ /^#T?<[^>]+>$/
+              && $what !~ /^#T?<[^>]*>$/
               && $what !~ /^(["']).*\1$/
               && $what !~ /^\([^()]*\)$/;
             push( @terms, "$what AS $alias" );
@@ -295,7 +294,7 @@ sub hoist {
 
     if ( $TRACE{hoist} ) {
         $original = recreate($query);
-        trace( 'Hoist ', $original );
+        trace( 'Hoisting ', $original );
     }
 
     # Simplify the parse tree, work out type information.
@@ -370,6 +369,7 @@ sub _hoist {
     # The default context table is 'topic'. As soon as we go into a
     # SELECT, the context table may change. In a /, the context table
     # is still 'topic'
+    trace( "HOIST ", $node ) if $TRACE{hoist};
 
     my $op    = $node->{op}->{name}  if ref( $node->{op} );
     my $arity = $node->{op}->{arity} if ref( $node->{op} );
@@ -407,7 +407,7 @@ sub _hoist {
             else {
 
                 # Name of a field
-                $result{sql} = $in_table ? "$in_table." : '' . "#<$name>";
+                $result{sql} = ( $in_table ? "$in_table." : '' ) . "#<$name>";
                 $result{type} = STRING;
             }
         }
@@ -459,9 +459,9 @@ sub _hoist {
             comment => __LINE__
         );
         $result{is_select}  = 1;
-        $result{has_where}  = length($where);
+        $result{has_where}  = 1 if length($where);
         $result{type}       = STRING;
-        $result{ignore_tid} = $lhs{ignore_tid};
+        $result{ignore_tid} = 1 if $lhs{ignore_tid};
 
         # No . here, so no selector
     }
@@ -494,7 +494,7 @@ sub _hoist {
         );
         $result{is_select}  = 1;
         $result{type}       = STRING;
-        $result{ignore_tid} = $lhs{ignore_tid};
+        $result{ignore_tid} = 1 if $lhs{ignore_tid};
 
     }
     elsif ( $op eq '/' ) {
@@ -744,12 +744,12 @@ sub _hoist {
         else {
             ( $result{sql}, $result{type} ) = &$opfn( $kid{sql}, $kid{type} );
         }
-        $result{ignore_tid} = $kid{ignore_tid};
+        $result{ignore_tid} = 1 if $kid{ignore_tid};
     }
     else {
         _abort( "Don't know how to hoist '$op':", $node );
     }
-
+    trace( "Hoisted ", \%result ) if $TRACE{hoist};
     return %result;
 }
 
