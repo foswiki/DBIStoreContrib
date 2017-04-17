@@ -147,19 +147,19 @@ Columns are defined in a Perl hash containing attributes:
    * =type= (required) specifies the SQL type for the column
    * =basetype= optionally specifies a column type declaration to base
      this type on (local attributes override those in the base type)
-   * =index= if true, then an index will be created for the column
    * =truncate_to= if set to a length, then the value of that field
     stored in the DB will be truncated to that length. This only
     affects searching. If =truncate=_to is not set, then trying to
     store a value longer than the field accepts will be an error.
-   * =default= can be used to provide a default for the column. For
-    most DBs this isn't required, but it may be needed with SQL
-    Server.
+   * =default= can be used to provide a default for the column. If you
+     don't give a =default=, one will automatically be chosen from
+     the column type.
    * =unique= may be set to the name of a uniqueness constraint (see
      below)
    * =primary= if true, the column will be the PRIMARY KEY for the
     table.  This automatically enforces a uniqueness constraint on the
     column.
+   * =index= if true, then an index will be created for the column
 
 For example,
 <verbatim>
@@ -197,7 +197,7 @@ the =web= is different). Note that =primary= columns are automatically
 unique and don't need a =unique= attribute.
 
 ---++++ =_DEFAULT=
-The column type declaration =_DEFAULT= must exist and must be a text
+The column type declaration =_DEFAULT= *must* exist and must be a text
 type, ideally supporting arbitrary length text strings, if either of
 the ={AutoloadUnknownMETA}= or ={AutoAddUnknownFields}= options are
 enabled in =configure=.
