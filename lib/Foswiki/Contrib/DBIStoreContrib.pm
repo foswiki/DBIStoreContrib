@@ -24,7 +24,7 @@ use Encode        ();
 use File::Temp;
 
 our $VERSION = '2.0';          # plugin version is also locked to this
-our $RELEASE = '9 Apr 2017';
+our $RELEASE = '17 Apr 2017';
 
 # Global options, used to control tracing etc throughout the module
 our %TRACE = (
