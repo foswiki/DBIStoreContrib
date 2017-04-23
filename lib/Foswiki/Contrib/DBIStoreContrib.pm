@@ -565,11 +565,10 @@ sub load {
     while ( $wit->hasNext() ) {
 
         my $w = ( $wo->web ? $wo->web . '/' : '' ) . $wit->next();
-        next unless !defined($wre) || $w =~ /^$wre$/;
 
         # Load subweb
         my $swo = Foswiki::Meta->load( $wo->session, $w );
-        load( $swo, $reload );
+        load( $swo, $wre, $tre, $reload );
     }
 
     # No topics at root level
