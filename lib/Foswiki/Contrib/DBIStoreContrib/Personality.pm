@@ -121,7 +121,7 @@ sub sql {
     };
     if ($@) {
         require Carp;
-        Carp::confess($@);
+        Carp::confess( $@, $sql );
     }
     return $sth;
 }

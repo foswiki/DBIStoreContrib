@@ -1,4 +1,4 @@
-META:TOPICINFO{author="ProjectContributor" comment="save topic" date="1401385201" format="1.1" version="1"}%
+%META:TOPICINFO{author="ProjectContributor" date="1497033049" format="1.1" version="1"}%
 ---+!! !DBIStoreContrib
 <!--
    * Set SHORTDESCRIPTION = %$SHORTDESCRIPTION%
@@ -11,7 +11,7 @@ This extension supports fast queries and searches over the
 content of topics and attachments by cacheing wiki topics in
 an SQL database.
 
-Works as a mirror of an existing store (e.g. PlainFile, RCS)
+Works as a mirror of an existing store (e.g. !PlainFile, RCS)
    1. With all searching operations performed using SQL _or_
    2. With just structured queries performed using SQL _or_
    3. Simply to support other clients querying data using SQL.
@@ -32,7 +32,7 @@ matched against the original query to give a final set of matching
 topics. This is fine when you have relatively few queries, but is
 not terribly efficient if you make a lot of use of query searches.
 
-The DBIStoreContrib does things differently. When you select
+The !DBIStoreContrib does things differently. When you select
 !DBIStoreContrib for the query algorithm, query searches are
 automatically transformed into SQL queries, which are very
 fast. Further, you can optionally choose to use the database for
@@ -52,14 +52,13 @@ It has "personality modules" that support the following SQL implementations:
    * [[http://www.sqlite.org/][SQLite]]
    * [[http://www.mysql.com/][MySQL]]
    * [[http://www.postgresql.org/][Postgresql]]
-   * [[www.microsoft.com/SQL][Microsoft SQL Server (Transact-SQL)]]
+   * [[http://www.microsoft.com/SQL][Microsoft SQL Server (Transact-SQL)]]
 
 Note that there are many different versions of these databases and
 full compatibility with any given version cannot be guaranteed.
 
-The release package includes the DBIStorePlugin, which can be optionally
-enabled. This plugin hooks into the Foswiki save operations to
-incrementally update the database.
+The release package includes the !DBIStorePlugin, which hooks into the
+Foswiki save operations to incrementally update the database.
 
 Alternatively, you can use the included =dbistore_manage.pl= program
 to create cron (or iwatch) jobs to update the database offline.
@@ -109,7 +108,7 @@ database, you can define an optional prefix to be used on table names
 in =configure=.
 
 If the =FILEATTACHMENT= table in the schema has a field called 'text',
-and the StringifierContrib is installed, then the attachment will
+and the [[http://foswiki.org/Extensions/StringifierContrib][StringifierContrib]] is installed, then the attachment will
 automatically be serialised (if necessary) and stored in text form in
 the database. This pseudo-field can be searched using standard SEARCH
 queries, for example:
@@ -149,8 +148,8 @@ Columns are defined in a Perl hash containing attributes:
      this type on (local attributes override those in the base type)
    * =truncate_to= if set to a length, then the value of that field
     stored in the DB will be truncated to that length. This only
-    affects searching. If =truncate=_to is not set, then trying to
-    store a value longer than the field accepts will be an error.
+    affects searching. If =truncate_to= is not set, then trying to
+    store a value longer than the field accepts will be an SQL error.
    * =default= can be used to provide a default for the column. If you
      don't give a =default=, one will automatically be chosen from
      the column type.
@@ -161,7 +160,13 @@ Columns are defined in a Perl hash containing attributes:
     column.
    * =index= if true, then an index will be created for the column
 
-For example,
+For example, the WORKFLOW table might 
+<verbatim>
+       tid => { type => 'INT', primary => 1 }
+       name => { type => 'TEXT', truncate_to => 30 }
+</verbatim>
+
+Using a =basetype=
 <verbatim>
   _INDEXED => { type => 'INT', index => 1, unique => 'smatter' },
   ...
@@ -228,7 +233,7 @@ different to what base Foswiki would return.
 
 ---+++ Date comparison
 Date conversion using the =d2n= operator is not supported with
-Postgresql and !MySQL.
+!PostgreSQL and !MySQL.
 
 ---+++ Row indexes
 Integer indexes are not supported. Use queries instead.
@@ -261,8 +266,8 @@ from your {Site}{CharSet} to UTF-8 before saving in the database.
       1 Set a DSN in the 'Extensions' section (the default is for
       sqlite3). Example DSNs:
          * =dbi:ODBC:wiki= - generic ODBC
-         * =dbi:Pg:dbname=foswiki= - PostgreSQL
-         * =dbi:mysql:database=wiki;host=mysqlserver;port=1234= - MySQL
+         * =dbi:Pg:dbname=foswiki= - !PostgreSQL
+         * =dbi:mysql:database=wiki;host=mysqlserver;port=1234= - !MySQL
       1 Select a suitable personality module for your database type.
       1 Select =Foswiki::Store::QueryAlgorithms::DBIStoreContrib= for
       the ={Store}{QueryAlgorithm}= *EXPERT* setting 1 Select
@@ -321,8 +326,6 @@ UTF-8.
 ---+++ Microsoft SQL Server Notes
 SQL Server is supported via ODBC. See "ODBC Notes" for more.
 
-%X% *IF YOU WANT FULL SUPPORT FOR UNICODE CHARACTERS, DON'T USE SQL SERVER*
-
 If you are using the !FreeTDS driver, make sure your =odbc.ini= is
 selecting the highest possible protocol version that your server
 supports. See
@@ -367,6 +370,8 @@ ALTER DATABASE Foswiki COLLATE Latin1_General_100_CS_AS_SC;
 Without this, upper and lower case strings will be compared
 case-insensitively, and the DB will be unable to distinguish
 =ThisTopicName= and =THISTOPICNAME=.
+
+%X% *IF YOU WANT FULL SUPPORT FOR UNICODE CHARACTERS, DON'T USE SQL SERVER*
 
 ---++++ Authentication
 If you are using Windows authentication for access to the database

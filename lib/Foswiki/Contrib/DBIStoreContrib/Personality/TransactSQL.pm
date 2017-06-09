@@ -133,9 +133,10 @@ sub to_db {
     return Encode::encode_utf8( $_[1] );
 }
 
-sub from_db {
-    return Encode::decode_utf8( $_[1] );
-}
+# Commented out otherwise it doesn't work at Micralyne
+#sub from_db {
+#    return Encode::decode_utf8( $_[1] );
+#}
 
 sub is_true {
     my ( $this, $type, $sql ) = @_;

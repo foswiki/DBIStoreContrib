@@ -23,8 +23,8 @@ use DBI           ();
 use Encode        ();
 use File::Temp;
 
-our $VERSION = '2.0';          # plugin version is also locked to this
-our $RELEASE = '17 Apr 2017';
+our $VERSION = '2.1';          # plugin version is also locked to this
+our $RELEASE = '9 Jun 2017';
 
 # Global options, used to control tracing etc throughout the module
 our %TRACE = (
@@ -565,6 +565,7 @@ sub load {
     while ( $wit->hasNext() ) {
 
         my $w = ( $wo->web ? $wo->web . '/' : '' ) . $wit->next();
+        next unless !defined($wre) || $w =~ /^$wre$/;
 
         # Load subweb
         my $swo = Foswiki::Meta->load( $wo->session, $w );

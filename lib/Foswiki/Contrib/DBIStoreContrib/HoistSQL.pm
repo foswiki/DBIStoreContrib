@@ -371,8 +371,8 @@ sub _hoist {
     # is still 'topic'
     trace( "HOIST ", $node ) if $TRACE{hoist};
 
-    my $op    = $node->{op}->{name}  if ref( $node->{op} );
-    my $arity = $node->{op}->{arity} if ref( $node->{op} );
+    my $op    = $node->{op}->{name}         if ref( $node->{op} );
+    my $arity = scalar @{ $node->{params} } if ref( $node->{op} );
 
     my %result;
     $result{type} = UNKNOWN;
@@ -567,7 +567,6 @@ sub _hoist {
         $result{ignore_tid} = 1;
     }
     elsif ( $arity == 2 && defined $bop_map{$op} ) {
-
         my $lhs = $node->{params}[0];
         my %lhs = _hoist( $lhs, $in_table );
 
@@ -827,7 +826,21 @@ sub _clarifyFWQuery {
     $before = recreate($node) if $TRACE{hoist};
     my $lineNo = __LINE__;
 
-    my $op = $node->{op};
+    my $op    = $node->{op};
+    my $arity = scalar @{ $node->{params} };
+
+    # We only handle at most binary ops, so must unflatten n-ary ops, such
+    # as and and or. Do this by taking params 0 and 1 and creating a clone
+    # of this node
+    if ( ref($op) ) {
+        while ( $arity > 2 ) {
+            my $p0 = shift @{ $node->{params} };
+            $node->{params}[0] =
+              Foswiki::Infix::Node->newNode( $node->{op}, $p0,
+                $node->{params}[0] );
+            $arity--;
+        }
+    }
 
     if ( !ref($op) ) {
         if ( $op == NAME ) {
@@ -968,12 +981,11 @@ sub _clarifyFWQuery {
         $node->{is_table} = 1;
     }
     else {
-        for ( my $i = 0 ; $i < $op->{arity} ; $i++ ) {
+        for ( my $i = 0 ; $i < $arity ; $i++ ) {
             my $nn =
               _clarifyFWQuery( $node->{params}[$i], $context, "$indent " );
             $node->{params}[$i] = $nn;
         }
-        my $nop = $op->{name};
     }
 
     trace( $indent, $lineNo, ': Clarified FWQ ',
@@ -1067,7 +1079,8 @@ sub recreate {
 
     if ( ref( $node->{op} ) ) {
         my @oa;
-        for ( my $i = 0 ; $i < $node->{op}->{arity} ; $i++ ) {
+        my $arity = scalar @{ $node->{params} };
+        for ( my $i = 0 ; $i < $arity ; $i++ ) {
             my $nprec = $node->{op}->{prec};
             $nprec++ if $i > 0;
             $nprec = 0 if $node->{op}->{close};
