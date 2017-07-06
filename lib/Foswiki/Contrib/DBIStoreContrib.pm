@@ -23,8 +23,8 @@ use DBI           ();
 use Encode        ();
 use File::Temp;
 
-our $VERSION = '2.1';          # plugin version is also locked to this
-our $RELEASE = '9 Jun 2017';
+our $VERSION = '2.2';          # plugin version is also locked to this
+our $RELEASE = '6 Jul 2017';
 
 # Global options, used to control tracing etc throughout the module
 our %TRACE = (
