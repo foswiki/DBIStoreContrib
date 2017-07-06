@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ProjectContributor" date="1497033049" format="1.1" version="1"}%
+%META:TOPICINFO{author="ProjectContributor" date="1499336104" format="1.1" version="1"}%
 ---+!! !DBIStoreContrib
 <!--
    * Set SHORTDESCRIPTION = %$SHORTDESCRIPTION%
@@ -456,6 +456,8 @@ Here's an overview of the important bits of the contrib:
 |  Release: | %$RELEASE% |
 |  Version: | %$VERSION% |
 |  Change History: | <!-- versions below in reverse order -->&nbsp; |
+|  2.2 (Jul 2017) | Fixed Foswikitask:Item14427 |
+|  2.1 (Jun 2017) | Fixed Foswikitask:Item14419 |
 |  2.0 (April 2017) | Unicode support for Foswiki 2.0 |
 |  1.2 (18 Oct 2014) | Foswikitask:Item12992: Added UNIQUE constraints to schema Foswikitask:Item13056: fix fileattachment moves in plugin |
 |  1.1 (12 Aug 2014) | Fixes for Foswikitask:Item12989 and Foswikitask:Item12990: |

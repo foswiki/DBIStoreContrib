@@ -237,7 +237,7 @@ sub _fmt_trace {
 # is a string.
 sub trace {
 
-    my $s = join( '', map { ref($_) ? _fmt_trace($_) : $_ } @_ );
+    my $s = join( '', map { ref($_) ? _fmt_trace($_) : ( $_ // 'undef' ) } @_ );
     if ( $TRACE{cli} ) {
         print STDERR "$s\n";
     }
@@ -560,7 +560,7 @@ sub load {
         die "Base metatypes and topic tables missing; do you need to --reset?";
     }
 
-    trace( "Web ", $wo->getPath ) if $TRACE{action};
+    # Recurse through all webs
     my $wit = $wo->eachWeb();
     while ( $wit->hasNext() ) {
 
@@ -573,7 +573,7 @@ sub load {
     }
 
     # No topics at root level
-    return unless ( $wo->web() );
+    return unless ( $wo->web() && ( !defined($wre) || $w =~ /^$wre$/ ) );
 
     my $tit = $wo->eachTopic();
     while ( $tit->hasNext() ) {
