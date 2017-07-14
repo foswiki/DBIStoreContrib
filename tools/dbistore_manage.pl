@@ -30,8 +30,11 @@ my $reset;
 my $web   = '*';
 my $topic = '*';
 my $clean;
+my $check;
+my $repair;
 
 my $result = Getopt::Long::GetOptions(
+    'check'      => \$check,
     'clean'      => \$clean,
     'dbitrace=s' => \$dbitrace,
     'help'       => sub {
@@ -49,6 +52,7 @@ my $result = Getopt::Long::GetOptions(
     'load=s'  => \@loads,
     'query=s' => \$query,
     'reload'  => \$reload,
+    'repair'  => \$repair,
     'reset'   => \$reset,
     'sql:s'   => \$sql,
     'topic=s' => \$topic,
@@ -84,6 +88,11 @@ if ($reset) {
 
 if ($clean) {
     Foswiki::Contrib::DBIStoreContrib::clean($fw);
+    $opsDone++;
+}
+
+if ($check) {
+    Foswiki::Contrib::DBIStoreContrib::checkDBIntegrity($repair);
     $opsDone++;
 }
 
@@ -133,7 +142,7 @@ if ( defined $query ) {
       $Foswiki::Plugins::SESSION->search->parseSearch( $query,
         { type => 'query' } );
     $sql = Foswiki::Contrib::DBIStoreContrib::HoistSQL::hoist($query);
-    $sql = "SELECT #<web>,#<name> FROM #T<topic> WHERE $sql";
+    $sql = "SELECT #<web>,#<name>,#<tid> FROM #T<topic> WHERE $sql";
     $sql .= " AND #<name> LIKE '$topic'" if $topic && $topic ne '%';
     $sql .= " AND #<web> LIKE '$web'"    if $web   && $web   ne '%';
 
@@ -149,8 +158,8 @@ if ( defined $sql ) {
     }
     my $rv = Foswiki::Contrib::DBIStoreContrib::query($sql);
     if ( $sql =~ /^\s*select\W/i ) {
-        foreach my $topic (@$rv) {
-            trace( $topic->[0], '.', $topic->[1] );
+        foreach my $result (@$rv) {
+            trace( join( ', ', @$result ) );
         }
     }
     else {
@@ -222,12 +231,6 @@ Execute the given SQL query over the DB, and report the result.
 Only one of C<--query> or C<--sql> may be given. Use B<--sql -> to
 read a query from standard input.
 
-=item B<--trace>
-
-Enable a trace option. C<--help trace> can be used to list trace keys.
-C<--trace all> will switch on all trace options. Trace output is printed
-to STDERR.
-
 =item B<--clean>
 
 In theory, nothing ever gets deleted from a Foswiki database. In
@@ -235,6 +238,28 @@ reality, sometimes you have to delete topics, and even entire webs. In
 this case, the DBIStoreContrib database has to be cleaned, to delete
 entries that no longer correspond to live topics. Cleaning is done
 before any --query or --sql is executed.
+
+=item B<--check> check database integrity
+
+It's possible that a database operation might be incomplete, for
+example if the database server crashes halfway through a deletion. In
+this case it is possible for the database to become internally
+inconsistent. If you see SQL error messages in the logs, you should
+run with --check to determine if the database is internally
+consistent. If it isn't, your can run --check again with the --repair
+option, to repair any inconsistencies. Checking (and repair) are done
+before and --query or --sql is executed.
+
+=item B<--repair> repair database integrity
+
+Does nothing on it's own, but when used with --check will repair any
+inconsistencies found by --check.
+
+=item B<--trace>
+
+Enable a trace option. C<--help trace> can be used to list trace keys.
+C<--trace all> will switch on all trace options. Trace output is printed
+to STDERR.
 
 =item B<--dbitrace> trace
 

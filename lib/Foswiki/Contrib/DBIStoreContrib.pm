@@ -23,8 +23,8 @@ use DBI           ();
 use Encode        ();
 use File::Temp;
 
-our $VERSION = '2.2';          # plugin version is also locked to this
-our $RELEASE = '6 Jul 2017';
+our $VERSION = '2.3';           # plugin version is also locked to this
+our $RELEASE = '14 Jul 2017';
 
 # Global options, used to control tracing etc throughout the module
 our %TRACE = (
@@ -39,11 +39,14 @@ our %TRACE = (
 require Exporter;
 our @ISA       = qw(Exporter);
 our @EXPORT_OK = qw(
-  trace personality insert remove rename expandIDs
+  trace personality insert remove rename expandIDs checkDBIntegrity
   $TABLE_PREFIX %TRACE traceSQL
   NAME NUMBER STRING UNKNOWN BOOLEAN SELECTOR VALUE TABLE PSEUDO_BOOL);
 
-our $SHORTDESCRIPTION = 'Use DBI to implement a store using an SQL database.';
+our $SHORTDESCRIPTION =
+    'Supports fast queries and searches over the '
+  . 'content of topics and attachments by caching wiki topics in '
+  . 'an SQL database (e.g. MS SQL Server, !MySQL, !PostgreSQL)';
 
 # Type identifiers.
 # FIRST 3 MUST BE KEPT IN LOCKSTEP WITH Foswiki::Infix::Node
@@ -192,7 +195,7 @@ sub error {
     trace(@_);
     unless ( $TRACE{cli} ) {
 
-        # Repreint to STDERR
+        # Reprint to STDERR
         $TRACE{cli} = 1;
         trace(@_);
         $TRACE{cli} = 0;
@@ -565,7 +568,6 @@ sub load {
     while ( $wit->hasNext() ) {
 
         my $w = ( $wo->web ? $wo->web . '/' : '' ) . $wit->next();
-        next unless !defined($wre) || $w =~ /^$wre$/;
 
         # Load subweb
         my $swo = Foswiki::Meta->load( $wo->session, $w );
@@ -573,7 +575,8 @@ sub load {
     }
 
     # No topics at root level
-    return unless ( $wo->web() && ( !defined($wre) || $w =~ /^$wre$/ ) );
+    return
+      unless ( $wo->web() && ( !defined($wre) || $wo->web() =~ /^$wre$/ ) );
 
     my $tit = $wo->eachTopic();
     while ( $tit->hasNext() ) {
@@ -857,6 +860,8 @@ sub _insertTopic {
         # Insert this row
         my $data = $mo->{$type};
 
+        unshift( @$undos, [ "DELETE FROM #T<$type> WHERE tid=?", $tid ] );
+
         foreach my $item (@$data) {
 
             # All tables have 'tid'
@@ -970,13 +975,78 @@ sub _remove {
               if $TRACE{action};
 
             # Iterate over all our tables removing the tid
-            foreach my $tr ( 'topic', @tables ) {
+            foreach my $tr ( @tables, 'topic' ) {
                 eval {
                     personality->sql( "DELETE FROM #T<$tr> WHERE #<tid>=?",
                         $tid );
                 };
                 if ($@) {
                     error( "Failed to delete $tid from $tr: ", $@ );
+                }
+            }
+        }
+    }
+}
+
+sub checkDBIntegrity {
+    my $repair = shift;
+
+    getDBH();
+
+    my @problems;
+
+    # Get list of our tables from metatypes
+    my $sth = personality->sql('SELECT #<name> FROM #T<metatypes>');
+    my @tables;
+
+    foreach my $row ( @{ $sth->fetchall_arrayref() } ) {
+        my $t = $row->[0];
+        if ( personality->table_exists($t) ) {
+            push( @tables, $t );
+        }
+        else {
+            error("Table $t in metatypes does not exist in DB");
+            if ($repair) {
+                eval {
+                    personality->sql(
+                        "DELETE FROM #T<metatypes> WHERE #<name>=?", $t );
+                    error("...removed");
+                };
+                if ($@) {
+                    error( "repair failed: ", $@ );
+                }
+            }
+        }
+    }
+
+    # Check tids in all tables
+    $sth = personality->sql('SELECT #<tid>,#<web>,#<name> FROM #T<topic>');
+    my %tids =
+      map { $_->[0] => "$_->[1].$_->[2]" } @{ $sth->fetchall_arrayref() };
+
+    foreach my $tr (@tables) {
+        $sth = personality->sql("SELECT #<tid> FROM #T<$tr>");
+        my $tiddles = $sth->fetchall_arrayref();
+        my %missing_tids;
+        foreach my $row (@$tiddles) {
+            my $tid = $row->[0];
+            unless ( exists $tids{$tid} ) {
+                $missing_tids{$tid} = 1;
+            }
+        }
+        if ( scalar keys %missing_tids ) {
+            error( "Table $tr has tids missing from topic table: ",
+                join( ',', sort keys %missing_tids ) );
+            if ($repair) {
+                eval {
+                    personality->sql(
+                            "DELETE FROM #T<$tr> WHERE #<tid> IN ("
+                          . join( ',', keys %missing_tids )
+                          . ")" );
+                    error("...removed");
+                };
+                if ($@) {
+                    error( "repair failed: ", $@ );
                 }
             }
         }
@@ -1113,15 +1183,16 @@ sub query {
     getDBH();
 
     my $sth = personality->sql($sql);
-    my $rv  = $sth->fetchall_arrayref();
-
-    $rv = _applyToStrings(
+    my $rv  = [];
+    if ( $sql =~ /^\s*select\W/i ) {
+        $rv = $sth->fetchall_arrayref();
+    }
+    return _applyToStrings(
         $rv,
         sub {
             return uc2site( personality->from_db( $_[0] ) );
         }
     );
-    return $rv;
 }
 
 =begin TML

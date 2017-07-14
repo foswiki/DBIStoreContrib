@@ -1,47 +1,13 @@
-%META:TOPICINFO{author="ProjectContributor" date="1499336104" format="1.1" version="1"}%
+%META:TOPICINFO{author="ProjectContributor" date="1500033372" format="1.1" version="1"}%
 ---+!! !DBIStoreContrib
 <!--
    * Set SHORTDESCRIPTION = %$SHORTDESCRIPTION%
 -->
 %SHORTDESCRIPTION%
 
-%TOC%
-
-This extension supports fast queries and searches over the
-content of topics and attachments by cacheing wiki topics in
-an SQL database.
-
-Works as a mirror of an existing store (e.g. !PlainFile, RCS)
-   1. With all searching operations performed using SQL _or_
-   2. With just structured queries performed using SQL _or_
-   3. Simply to support other clients querying data using SQL.
-
-Searches in Foswiki fall into two types - _text searches_ and _query
-searches_. Text searches are what you use to find text in a topic,
-while query searches use a structured query language to specify
-logical combinations of field values. Foswiki has two internal
-configuration options, ={Store}{SearchAlgorithm}= and
-={Store}{QueryAlgorithm}=, that select the algorithms that it will use
-for these different types of search.
-
-The default query algorithm works by cherry-picking parts of queries
-to create regular expression searches that can then be passed though
-the search algorithm. These searches are then used as a filter on the
-set of topics, to narrow down to a subset that is then "brute force"
-matched against the original query to give a final set of matching
-topics. This is fine when you have relatively few queries, but is
-not terribly efficient if you make a lot of use of query searches.
-
-The !DBIStoreContrib does things differently. When you select
-!DBIStoreContrib for the query algorithm, query searches are
-automatically transformed into SQL queries, which are very
-fast. Further, you can optionally choose to use the database for
-standard text searches (including regular expression searches, if your
-DB supports them).
-
-A final benefit is that your Foswiki data is "cached" in an external
-SQL database that can be queried by other tools (though changes made
-in the database will *not* be reflected in the wiki).
+   * Automatically translates =%<nop>SEARCH{type="query"= into SQL queries
+   * Supports plain-text searches over attachment content
+   * Foswiki data is "cached" in an external SQL database that can be queried by other tools (though changes made in the database by other tools will *not* be reflected in the wiki)
 
 The !DBIStoreContrib has been designed to be *as compatible as possible* with
 existing =%SEARCH= expressions, and is usable with all well-written
@@ -62,6 +28,8 @@ Foswiki save operations to incrementally update the database.
 
 Alternatively, you can use the included =dbistore_manage.pl= program
 to create cron (or iwatch) jobs to update the database offline.
+
+%TOC%
 
 ---++ Database Schema
 The database schema must reflect 1:1 the structure of data in Foswiki
@@ -125,15 +93,15 @@ The schema should normally specify a table for every =%<nop>META:=
 that may occur in topics. This works so long as you know what
 meta-data will be added by the plugins you use. If you don't know, you
 can optionally specify that new tables are automatically added by
-setting ={AutoloadUnknownMETA}= in =configure.
+setting ={AutoloadUnknownMETA}= in =configure=.
 
 Normally only columns defined in the schema are loaded. Columns can be
 automatically added for attributes missing from the schema by setting
-={AutoAddUnknownFields}= in configure. Automatically added columns
+={AutoAddUnknownFields}= in =configure=. Automatically added columns
 will be given the type specified by the =_DEFAULT= column type
 declaration.
 
-Note that it is always best to make sure all meta-data has a schema
+%I% it is always best to make sure all meta-data has a schema
 entry. Automatic extension of the schema is relatively expensive, and
 should be avoided if possible.
 
@@ -160,7 +128,7 @@ Columns are defined in a Perl hash containing attributes:
     column.
    * =index= if true, then an index will be created for the column
 
-For example, the WORKFLOW table might 
+For example, the WORKFLOW table for the WorkflowPlugin might be:
 <verbatim>
        tid => { type => 'INT', primary => 1 }
        name => { type => 'TEXT', truncate_to => 30 }
@@ -413,12 +381,37 @@ Note that there has been *no* testing with ODBC drivers that are
 compiled with unicode support enabled.
 
 ---++ How it works
-!DBIStoreContrib works by using an (included) Foswiki plugin to
-"eavesdrop" on save operations in Foswiki. When a topic is saved, it
-is automatically added to the database in the background. The DB only
-caches the latest version of a topic; version histories are not stored
-(that would be the job of a full store implementation, which is
-a different project).
+
+Searches in Foswiki fall into two types - _text searches_ and
+_query searches_. Text searches are what you use to find text in a topic,
+while query searches use a structured query language to specify
+logical combinations of field values. Foswiki has two internal
+configuration options, ={Store}{SearchAlgorithm}= and
+={Store}{QueryAlgorithm}=, that select the algorithms that it will use
+for these different types of search.
+
+The default Foswiki query algorithm works by cherry-picking parts of
+queries to create regular expression searches that can then be passed
+though the search algorithm. These searches are then used as a filter
+on the set of topics, to narrow down to a subset that is then "brute
+force" matched against the original query to give a final set of
+matching topics. This is fine when you have relatively few queries,
+but is not terribly efficient if you make a lot of use of query
+searches.
+
+The !DBIStoreContrib does things differently. When you select
+!DBIStoreContrib for the query algorithm, query searches are
+automatically transformed into SQL queries, which are very
+fast. Further, you can optionally choose to use the database for
+standard text searches (including regular expression searches, if your
+DB supports them).
+
+!DBIStoreContrib maintains the SQL database using an (included)
+Foswiki plugin to "eavesdrop" on save operations in Foswiki. When a
+topic is saved, it is automatically added to the database in the
+background. The DB only caches the latest version of a topic; version
+histories are not stored (that would be the job of a full store
+implementation, which is a different project).
 
 The database is interfaced to via the standard Perl DBI interface, so
 any RDBMS that has an adapter can be used for the cache. A number of
